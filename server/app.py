@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pokemon_env.emulator import EmeraldEmulator
 from utils.anticheat import AntiCheatTracker
 from utils.milestone_manager import MilestoneManager
+from utils.knowledge_base import KnowledgeBase
 
 # MCP tool imports - lazy loaded to avoid circular imports
 _pokemon_mcp_tools = None
@@ -250,6 +251,9 @@ app.add_middleware(
 # Initialize milestone manager (singleton)
 milestone_manager = MilestoneManager()
 
+# Initialize knowledge base (singleton)
+knowledge_base = KnowledgeBase()
+
 # Models for API requests and responses
 class ActionRequest(BaseModel):
     buttons: list = []  # List of button names: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT
@@ -278,6 +282,12 @@ class ComprehensiveStateResponse(BaseModel):
     step_number: int
     status: str
     action_queue_length: int = 0
+
+class KnowledgeAddRequest(BaseModel):
+    """Request to manually add a knowledge entry"""
+    content: str
+    step: int = 0
+    milestone: str = "manual"
 
 # Helper function for extracting code from CodeAgent responses
 def extract_code_from_response(text):
@@ -671,6 +681,17 @@ async def get_playground():
         return HTMLResponse(content=content)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Playground interface not found")
+
+# Serve knowledge.html
+@app.get("/knowledge.html")
+async def get_knowledge_viewer():
+    """Serve the knowledge base viewer interface"""
+    try:
+        with open("server/knowledge.html", "r") as f:
+            content = f.read()
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Knowledge viewer not found")
 
 # FastAPI endpoints
 @app.get("/health")
@@ -1724,6 +1745,7 @@ async def get_code_agent_status():
             "status": "active",
             "code": code_only,  # Extracted code for textarea
             "full_response": full_response,  # Full structured response for display
+            "prompt": latest_interaction.get("prompt", ""),  # Prompt for display
             "duration": latest_interaction.get("duration", 0),
             "current_step": current_step,
             "timestamp": latest_interaction.get("timestamp", ""),
@@ -1976,6 +1998,56 @@ async def get_milestones():
             "tracking_system": "fallback",
             "error": str(e)
         }
+
+# Knowledge Base endpoints
+@app.get("/knowledge")
+async def get_knowledge():
+    """Get all knowledge entries"""
+    global knowledge_base
+    try:
+        # Reload from file to get latest updates from CodeAgent
+        knowledge_base.load()
+
+        return {
+            "entries": knowledge_base.get_all(),
+            "total": len(knowledge_base)
+        }
+    except Exception as e:
+        logger.error(f"Error getting knowledge: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting knowledge: {str(e)}")
+
+@app.post("/knowledge")
+async def add_knowledge(request: KnowledgeAddRequest):
+    """Manually add a knowledge entry"""
+    global knowledge_base
+    try:
+        entry_id = knowledge_base.add(
+            content=request.content,
+            step=request.step,
+            milestone=request.milestone
+        )
+        return {
+            "success": True,
+            "id": entry_id,
+            "message": "Knowledge entry added successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error adding knowledge: {e}")
+        raise HTTPException(status_code=500, detail=f"Error adding knowledge: {str(e)}")
+
+@app.delete("/knowledge")
+async def clear_knowledge():
+    """Clear all knowledge entries (for debugging)"""
+    global knowledge_base
+    try:
+        knowledge_base.clear()
+        return {
+            "success": True,
+            "message": "Knowledge base cleared"
+        }
+    except Exception as e:
+        logger.error(f"Error clearing knowledge: {e}")
+        raise HTTPException(status_code=500, detail=f"Error clearing knowledge: {str(e)}")
 
 # Global list to track recent button presses
 recent_button_presses = []

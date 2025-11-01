@@ -77,7 +77,7 @@ def format_tile_to_symbol(tile, x=None, y=None, location_name=None, player_pos=N
     elif "TALL_GRASS" in behavior_name:
         return "~"
     elif "COMPUTER" in behavior_name or "PC" in behavior_name:
-        return "PC"  # PC/Computer
+        return "c"  # PC/Computer
     elif "TELEVISION" in behavior_name or "TV" in behavior_name:
         return "T"  # Television
     elif "BOOKSHELF" in behavior_name or "SHELF" in behavior_name:

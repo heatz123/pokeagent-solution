@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Knowledge Base Viewer</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+        body {
+            font-family: 'VT323', monospace;
+            background-color: #0a0a0a;
+            color: #33ff33;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .header {
+            font-size: 32px;
+            color: #ff6177;
+            text-shadow: 0 0 10px #ff6177;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .stats {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 18px;
+            color: #ffff33;
+        }
+
+        .controls {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            background-color: #0a0a0a;
+            border: 2px solid #33ff33;
+            color: #33ff33;
+            padding: 10px 20px;
+            font-family: 'VT323', monospace;
+            font-size: 18px;
+            cursor: pointer;
+            margin: 0 10px;
+            box-shadow: 0 0 10px #33ff33;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background-color: #33ff33;
+            color: #0a0a0a;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn-danger {
+            border-color: #ff6177;
+            color: #ff6177;
+            box-shadow: 0 0 10px #ff6177;
+        }
+
+        .btn-danger:hover {
+            background-color: #ff6177;
+            color: #0a0a0a;
+        }
+
+        .knowledge-list {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .knowledge-entry {
+            background-color: #1a1a1a;
+            border: 1px solid #33ff33;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 0 10px rgba(51, 255, 51, 0.3);
+            transition: all 0.2s;
+        }
+
+        .knowledge-entry:hover {
+            box-shadow: 0 0 15px rgba(51, 255, 51, 0.5);
+            transform: translateX(5px);
+        }
+
+        .knowledge-content {
+            font-size: 20px;
+            color: #33ff33;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .knowledge-meta {
+            font-size: 14px;
+            color: #888;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .meta-label {
+            color: #666;
+        }
+
+        .meta-value {
+            color: #ffff33;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #666;
+            font-size: 24px;
+            margin-top: 100px;
+        }
+
+        /* CRT effect */
+        .crt-lines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Add entry form */
+        .add-form {
+            max-width: 1000px;
+            margin: 0 auto 30px auto;
+            background-color: #1a1a1a;
+            border: 2px solid #ffff33;
+            border-radius: 5px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(255, 255, 51, 0.3);
+        }
+
+        .add-form h3 {
+            color: #ffff33;
+            margin-top: 0;
+            font-size: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-label {
+            display: block;
+            color: #33ff33;
+            margin-bottom: 5px;
+            font-size: 16px;
+        }
+
+        .form-input {
+            width: 100%;
+            background-color: #0a0a0a;
+            border: 1px solid #33ff33;
+            color: #33ff33;
+            padding: 10px;
+            font-family: 'VT323', monospace;
+            font-size: 18px;
+            box-sizing: border-box;
+        }
+
+        .form-input:focus {
+            outline: none;
+            box-shadow: 0 0 10px rgba(51, 255, 51, 0.5);
+        }
+
+        .form-row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="crt-lines"></div>
+
+    <div class="header">📚 KNOWLEDGE BASE</div>
+
+    <div class="stats">
+        <span id="total-count">0</span> entries logged
+    </div>
+
+    <div class="controls">
+        <button class="btn" onclick="refreshKnowledge()">🔄 Refresh</button>
+        <button class="btn" onclick="toggleAddForm()">➕ Add Entry</button>
+        <button class="btn btn-danger" onclick="clearKnowledge()">🗑️ Clear All</button>
+    </div>
+
+    <div class="add-form" id="add-form" style="display: none;">
+        <h3>Add New Knowledge Entry</h3>
+        <div class="form-group">
+            <label class="form-label">Knowledge (sentence):</label>
+            <input type="text" id="knowledge-content" class="form-input" placeholder="e.g., The clock has been set.">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">Step:</label>
+                <input type="number" id="knowledge-step" class="form-input" value="0">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Milestone:</label>
+                <input type="text" id="knowledge-milestone" class="form-input" value="manual">
+            </div>
+        </div>
+        <button class="btn" onclick="submitKnowledge()">✓ Add Knowledge</button>
+        <button class="btn btn-danger" onclick="toggleAddForm()">✗ Cancel</button>
+    </div>
+
+    <div class="knowledge-list" id="knowledge-list">
+        <div class="empty-state">Loading...</div>
+    </div>
+
+    <script>
+        const serverPort = window.location.port || '8000';
+        const serverUrl = `http://${window.location.hostname}:${serverPort}`;
+
+        async function refreshKnowledge() {
+            try {
+                const response = await fetch(`${serverUrl}/knowledge`);
+                const data = await response.json();
+
+                document.getElementById('total-count').textContent = data.total;
+
+                const listDiv = document.getElementById('knowledge-list');
+
+                if (data.entries.length === 0) {
+                    listDiv.innerHTML = '<div class="empty-state">No knowledge entries yet.</div>';
+                    return;
+                }
+
+                // Reverse to show newest first
+                const entries = [...data.entries].reverse();
+
+                let html = '';
+                entries.forEach((entry, index) => {
+                    const timestamp = new Date(entry.created_timestamp).toLocaleString();
+                    const milestoneShort = entry.created_milestone.replace('story_', '');
+
+                    html += `
+                        <div class="knowledge-entry">
+                            <div class="knowledge-content">${escapeHtml(entry.content)}</div>
+                            <div class="knowledge-meta">
+                                <div class="meta-item">
+                                    <span class="meta-label">Step:</span>
+                                    <span class="meta-value">${entry.created_step}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">Milestone:</span>
+                                    <span class="meta-value">${milestoneShort}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">Time:</span>
+                                    <span class="meta-value">${timestamp}</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-label">ID:</span>
+                                    <span class="meta-value">${entry.id}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                listDiv.innerHTML = html;
+
+            } catch (error) {
+                console.error('Error fetching knowledge:', error);
+                document.getElementById('knowledge-list').innerHTML =
+                    '<div class="empty-state" style="color: #ff6177;">Error loading knowledge base</div>';
+            }
+        }
+
+        async function clearKnowledge() {
+            if (!confirm('Are you sure you want to clear all knowledge entries?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${serverUrl}/knowledge`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Knowledge base cleared!');
+                    refreshKnowledge();
+                }
+            } catch (error) {
+                console.error('Error clearing knowledge:', error);
+                alert('Error clearing knowledge base');
+            }
+        }
+
+        function toggleAddForm() {
+            const form = document.getElementById('add-form');
+            if (form.style.display === 'none') {
+                form.style.display = 'block';
+            } else {
+                form.style.display = 'none';
+                // Clear form
+                document.getElementById('knowledge-content').value = '';
+                document.getElementById('knowledge-step').value = '0';
+                document.getElementById('knowledge-milestone').value = 'manual';
+            }
+        }
+
+        async function submitKnowledge() {
+            const content = document.getElementById('knowledge-content').value.trim();
+            const step = parseInt(document.getElementById('knowledge-step').value);
+            const milestone = document.getElementById('knowledge-milestone').value.trim();
+
+            if (!content) {
+                alert('Please enter knowledge content');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${serverUrl}/knowledge`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        content: content,
+                        step: step,
+                        milestone: milestone
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Knowledge added successfully!');
+                    toggleAddForm();
+                    refreshKnowledge();
+                } else {
+                    alert('Error adding knowledge');
+                }
+            } catch (error) {
+                console.error('Error adding knowledge:', error);
+                alert('Error adding knowledge');
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Auto-refresh every 5 seconds
+        setInterval(refreshKnowledge, 5000);
+
+        // Initial load
+        refreshKnowledge();
+    </script>
+</body>
+</html>

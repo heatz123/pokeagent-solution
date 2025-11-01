@@ -198,42 +198,6 @@
             z-index: 10;
         }
 
-        /* Prompt display styles */
-        .prompt-toggle-btn {
-            background-color: #0a0a0a;
-            border: 1px solid #666;
-            color: #666;
-            padding: 5px 10px;
-            font-family: 'VT323', monospace;
-            font-size: 14px;
-            cursor: pointer;
-            margin-top: 5px;
-            transition: all 0.2s;
-        }
-
-        .prompt-toggle-btn:hover {
-            border-color: #ffff33;
-            color: #ffff33;
-        }
-
-        .prompt-content {
-            background-color: #0a0a0a;
-            border: 1px solid #666;
-            color: #888;
-            padding: 10px;
-            margin-top: 5px;
-            white-space: pre-wrap;
-            font-family: 'Monaco', 'Courier New', monospace;
-            font-size: 12px;
-            max-height: 200px;
-            overflow-y: auto;
-            display: none;
-        }
-
-        .prompt-content.visible {
-            display: block;
-        }
-
         /* Mode toggle styles */
         .mode-toggle {
             display: flex;
@@ -593,7 +557,7 @@
                     // Display structured response if available
                     let responseHtml = '';
                     if (result.llm_response) {
-                        responseHtml = displayStructuredResponse(result.llm_response);
+                        responseHtml = displayStructuredResponse(result.llm_response, result.prompt);
                     }
 
                     resultDiv.innerHTML = `
@@ -601,8 +565,6 @@
                         <div class="result-info">Generation time: ${result.generation_time?.toFixed(2)}s</div>
                         <div class="result-info">Tokens: ${result.prompt_tokens || 0} prompt + ${result.completion_tokens || 0} completion</div>
                         ${responseHtml}
-                        <button class="prompt-toggle-btn" onclick="togglePrompt()" style="margin-top: 10px;">View Prompt ▼</button>
-                        <div id="prompt-content" class="prompt-content">${escapeHtml(result.prompt || 'No prompt available')}</div>
                     `;
                 } else {
                     resultDiv.innerHTML = `
@@ -620,22 +582,6 @@
                 generateButton.textContent = 'GENERATE CODE';
             }
         });
-
-        // Prompt toggle function
-        function togglePrompt() {
-            const promptDiv = document.getElementById('prompt-content');
-            const toggleBtn = document.querySelector('.prompt-toggle-btn');
-
-            if (promptDiv && toggleBtn) {
-                if (promptDiv.classList.contains('visible')) {
-                    promptDiv.classList.remove('visible');
-                    toggleBtn.textContent = 'View Prompt ▼';
-                } else {
-                    promptDiv.classList.add('visible');
-                    toggleBtn.textContent = 'Hide Prompt ▲';
-                }
-            }
-        }
 
         // Allow Ctrl+Enter to send
         codeInput.addEventListener('keydown', (e) => {
@@ -696,7 +642,7 @@
         }
 
         // Display structured response
-        function displayStructuredResponse(fullResponse) {
+        function displayStructuredResponse(fullResponse, prompt = null) {
             const sections = parseStructuredResponse(fullResponse);
 
             let html = '<div class="response-sections">';
@@ -750,6 +696,16 @@
                     <div class="response-section highlight has-content">
                         <div class="response-section-header">${icon} ${title}</div>
                         <pre class="response-section-content">${escapeHtml(actionContent)}</pre>
+                    </div>
+                `;
+            }
+
+            // PROMPT (if provided)
+            if (prompt) {
+                html += `
+                    <div class="response-section has-content">
+                        <div class="response-section-header">📝 PROMPT</div>
+                        <pre class="response-section-content">${escapeHtml(prompt)}</pre>
                     </div>
                 `;
             }
@@ -839,7 +795,7 @@
                     // Try to display structured response if full_response is available
                     let responseHtml = '';
                     if (data.full_response) {
-                        responseHtml = displayStructuredResponse(data.full_response);
+                        responseHtml = displayStructuredResponse(data.full_response, data.prompt);
                     }
 
                     resultDiv.innerHTML = `

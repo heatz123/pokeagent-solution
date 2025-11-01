@@ -276,13 +276,254 @@ def format_state_for_llm(state_data, include_debug_info=False, include_npcs=True
     """
     return format_state(state_data, format_type="detailed", include_debug_info=include_debug_info, include_npcs=include_npcs, use_json_map=use_json_map)
 
+def convert_state_to_dict(state_data):
+    """
+    Convert game state to structured dictionary format for CodeAgent
+
+    This is the internal representation that both the prompt and code execution use.
+    Returns a dict (not JSON string) for efficiency.
+
+    Args:
+        state_data (dict): The comprehensive state from /state endpoint
+
+    Returns:
+        dict: Structured state data
+    """
+    # Extract sections
+    player_data = state_data.get('player', {})
+    game_data = state_data.get('game', {})
+    map_data = state_data.get('map', {})
+
+    # Build structured response
+    formatted = {
+        "player": {
+            "name": player_data.get('name'),
+            "position": player_data.get('position', {}),
+            "location": player_data.get('location'),
+            "money": player_data.get('money') or game_data.get('money'),
+            "party": player_data.get('party', [])
+        },
+        "game": {
+            "game_state": game_data.get('game_state'),
+            "is_in_battle": game_data.get('is_in_battle', False),
+            "dialog_text": game_data.get('dialog_text'),
+            "badges": game_data.get('badges', 0),
+            "money": game_data.get('money'),
+            "time": game_data.get('time')
+        },
+        "map": {
+            "location": player_data.get('location'),
+            "current_map": map_data.get('current_map'),
+            "player_coords": map_data.get('player_coords', {})
+        },
+        "milestones": state_data.get('milestones', {})
+    }
+
+    # Add movement preview if in overworld (not in battle or title)
+    player_location = player_data.get('location', '')
+    if (game_data.get('game_state') == 'overworld' and
+        player_location != 'TITLE_SEQUENCE' and
+        not game_data.get('is_in_battle', False)):
+        movement_preview = get_movement_preview(state_data)
+        if movement_preview:
+            formatted["movement_preview"] = movement_preview
+
+    # Add map grid in compact format with absolute coordinates
+    if map_data.get('tiles') and player_data.get('position'):
+        grid_data = _convert_tiles_to_grid(map_data, player_data, player_location)
+        if grid_data:
+            formatted["map"]["grid"] = grid_data["grid"]
+            formatted["map"]["grid_origin"] = grid_data["origin"]
+            if grid_data["objects"]:
+                formatted["map"]["objects"] = grid_data["objects"]
+
+    # Add battle info if in battle
+    if game_data.get('is_in_battle') and game_data.get('battle_info'):
+        formatted["battle_info"] = game_data['battle_info']
+
+    return formatted
+
+def format_state_for_llm_json(state_data):
+    """
+    Format state as JSON string for LLM prompts (CodeAgent)
+
+    Returns structured JSON string instead of formatted text.
+    This allows LLM to work with structured data directly and write code
+    that accesses state fields programmatically.
+
+    Args:
+        state_data (dict): The comprehensive state from /state endpoint
+
+    Returns:
+        str: JSON string with structured state data
+    """
+    import json
+
+    # Use shared conversion function
+    formatted = convert_state_to_dict(state_data)
+    formatted.pop("milestones")
+
+    # Return as formatted JSON string
+    return json.dumps(formatted, indent=2, default=str)
+
+def _convert_tiles_to_grid(map_data, player_data, location_name=None):
+    """
+    Convert raw tile data to compact 2D grid format with absolute coordinates
+
+    Args:
+        map_data: Map information dict
+        player_data: Player information dict
+        location_name: Optional location name for context-specific symbols
+
+    Returns:
+        dict: {
+            "grid": 2D list of symbols (e.g., [[".", "P", "#"], ...]),
+            "origin": {"x": min_x, "y": min_y} - top-left corner absolute coords,
+            "objects": [{"type": "door", "name": "Door", "x": abs_x, "y": abs_y}, ...]
+        }
+    """
+    raw_tiles = map_data.get('tiles', [])
+    if not raw_tiles:
+        return None
+
+    player_pos = player_data.get('position', {})
+    player_x = player_pos.get('x', 0)
+    player_y = player_pos.get('y', 0)
+
+    # Use existing format_map_grid() to get symbol grid
+    # This gives us relative coordinates (player at center)
+    npcs = map_data.get('npcs', [])
+    player_coords = map_data.get('player_coords', player_pos)
+
+    symbol_grid = format_map_grid(
+        raw_tiles=raw_tiles,
+        player_facing=player_data.get('facing', 'South'),
+        npcs=npcs,
+        player_coords=player_coords,
+        trim_padding=False,  # Keep full 15x15 grid
+        location_name=location_name
+    )
+
+    if not symbol_grid:
+        return None
+
+    # Calculate absolute coordinates
+    # Grid is 15x15 centered on player, so top-left is (player_x - 7, player_y - 7)
+    radius = 7
+    origin_x = player_x - radius
+    origin_y = player_y - radius
+
+    # Extract objects (non-walkable or special tiles)
+    objects = []
+    # Symbol to name mapping (order follows format_tile_to_symbol in map_formatter.py)
+    symbol_to_name = {
+        'D': 'Door',
+        'S': 'Stairs/Warp',
+        'W': 'Water',
+        '~': 'Tall Grass',
+        'c': 'PC/Computer',
+        'T': 'Television',
+        'B': 'Bookshelf',
+        '?': 'Sign/Information',
+        'F': 'Flower/Plant',
+        'C': 'Counter/Desk',
+        '=': 'Bed',
+        't': 'Table/Chair',
+        'O': 'Clock',
+        '^': 'Picture/Painting',
+        'U': 'Trash Can',
+        'V': 'Pot/Vase',
+        'M': 'Machine/Device',
+        '↓': 'Ledge (South)',
+        '↑': 'Ledge (North)',
+        '←': 'Ledge (West)',
+        '→': 'Ledge (East)',
+        '↗': 'Ledge (NE)',
+        '↖': 'Ledge (NW)',
+        '↘': 'Ledge (SE)',
+        '↙': 'Ledge (SW)',
+        'J': 'Jump/Ledge',
+        'K': 'Clock (Wall)',
+        '@': 'Trainer',
+        'N': 'NPC',
+    }
+
+    for y_idx, row in enumerate(symbol_grid):
+        for x_idx, symbol in enumerate(row):
+            # Only include special objects, not empty walkable or walls
+            if symbol not in ['.', '#', 'P']:
+                abs_x = origin_x + x_idx
+                abs_y = origin_y + y_idx
+
+                obj_name = symbol_to_name.get(symbol, f"Unknown ({symbol})")
+
+                # Determine object type (order follows format_tile_to_symbol)
+                if symbol == 'D':
+                    obj_type = 'door'
+                elif symbol == 'S':
+                    obj_type = 'stairs'
+                elif symbol == 'W':
+                    obj_type = 'water'
+                elif symbol == '~':
+                    obj_type = 'tall_grass'
+                elif symbol == 'c':
+                    obj_type = 'computer'
+                elif symbol == 'T':
+                    obj_type = 'television'
+                elif symbol == 'B':
+                    obj_type = 'bookshelf'
+                elif symbol == '?':
+                    obj_type = 'sign'
+                elif symbol == 'F':
+                    obj_type = 'flower'
+                elif symbol == 'C':
+                    obj_type = 'counter'
+                elif symbol == '=':
+                    obj_type = 'bed'
+                elif symbol == 't':
+                    obj_type = 'table'
+                elif symbol == 'O':
+                    obj_type = 'clock'
+                elif symbol == '^':
+                    obj_type = 'picture'
+                elif symbol == 'U':
+                    obj_type = 'trash'
+                elif symbol == 'V':
+                    obj_type = 'pot'
+                elif symbol == 'M':
+                    obj_type = 'machine'
+                elif symbol in ['↓', '↑', '←', '→', '↗', '↖', '↘', '↙', 'J']:
+                    obj_type = 'ledge'
+                elif symbol == 'K':
+                    obj_type = 'clock'
+                elif symbol == '@':
+                    obj_type = 'trainer'
+                elif symbol == 'N':
+                    obj_type = 'npc'
+                else:
+                    obj_type = 'unknown'
+
+                objects.append({
+                    "type": obj_type,
+                    "name": obj_name,
+                    "x": abs_x,
+                    "y": abs_y,
+                    "symbol": symbol
+                })
+
+    return {
+        "grid": symbol_grid,
+        "origin": {"x": origin_x, "y": origin_y},
+        "objects": objects
+    }
+
 def format_state_summary(state_data):
     """
     Create a concise one-line summary of the current state for logging.
-    
+
     Args:
         state_data (dict): The comprehensive state from /state endpoint
-    
+
     Returns:
         str: Concise state summary
     """

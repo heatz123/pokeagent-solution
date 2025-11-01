@@ -44,7 +44,7 @@ class MilestoneManager:
         },
         {
             "id": "CLOCK_SET",
-            "description": "Set the clock in player's bedroom",
+            "description": "Set the clock in player's bedroom and get out of the house",
             "category": "task"
         },
         {

@@ -158,7 +158,7 @@ class SimpleAgentPromptBuilder:
             completed_objectives: List of completed Objective objects
             movement_memory: Pre-formatted movement memory string
             stuck_warning: Pre-formatted stuck warning string
-            context: Current game context ("overworld", "battle", "dialogue", "menu", "title")
+            context: Current game context ("overworld", "dialog", "battle", "menu", "title")
             coords: Current player coordinates (x, y)
             **kwargs: Additional arguments (for future extensibility)
 
@@ -527,6 +527,13 @@ IMPORTANT: Look carefully at the game image for objects and NPCs that might not 
 OBJECTIVES:
 [Review the current milestone and your progress. What is the immediate goal? What steps are needed to reach the next milestone?]
 
+KNOWLEDGE UPDATE (Optional):
+[If you learned something important that should be remembered for future runs, add it here:
+ADD_KNOWLEDGE: <one sentence describing the fact>
+Example: ADD_KNOWLEDGE: The clock has been set.
+Example: ADD_KNOWLEDGE: Talking to Mom triggers the Pokedex event.
+Only add NEW facts that aren't already in the knowledge base above.]
+
 PLAN:
 [Think about your immediate goal - what do you want to accomplish in the next action? Consider the current milestone and game state.]
 
@@ -534,46 +541,44 @@ REASONING:
 [Explain why you're choosing this specific action. Reference the game state, visual information, and your plan. Why is this the best move right now?]
 
 CODE:
-[Your final Python code - define a function called 'run' that takes 'state' as parameter and returns ONE action string.
+[Your final Python code - define a function called 'run' that takes 'state' as parameter and returns ONE action string OR a list of actions.
 Add brief comments explaining your logic. It should work regardless of the specific state within the current milestone. Keep it simple and focused.]
 - Valid actions: 'a', 'b', 'start', 'select', 'up', 'down', 'left', 'right'
+- Single action: return 'up'
+- Multiple actions (executed in sequence): return ['up', 'up', 'a']
 
 REQUIREMENTS:
-- Return action as a lowercase string
+- Return action as a lowercase string OR list of lowercase strings
 - Include helpful comments in your code"""
 
     @staticmethod
     def _default_example_code() -> str:
-        return """EXAMPLE RESPONSE:
+        return '''EXAMPLE RESPONSE:
 
 ANALYSIS:
-I can see the player is in the overworld at position (7, 8) in Littleroot Town. The visual shows a small town with buildings and paths. No battles or dialogues are active. The text state confirms the player is in the overworld.
+The frame is the moving van interior at game start. There are no mandatory dialogues here before exiting. The exit trigger is on the right edge of the van interior. Holding right will deterministically walk the player to the exit and transition to the next scene.
 
 OBJECTIVES:
-The current milestone is to reach Route 101 and encounter Prof. Birch. I need to travel north from Littleroot Town to reach Route 101. This is the first major story progression point after the game intro.
+Milestone: “Exit the moving van.”
+Success when the location changes from the van interior to the house (e.g., Mom’s house 1F) or an outdoor/entrance transition occurs.
 
 PLAN:
-Move north from the current position to exit Littleroot Town and reach Route 101. I should navigate upward through the town to find the northern exit that leads to Route 101.
+Use a one-action policy: always return 'right' each step until the scene changes. No branching, no checks—this keeps the example minimal and robust for this specific milestone.
 
 REASONING:
-Moving UP (north) is the correct action because:
-1. The milestone requires reaching Route 101, which is north of Littleroot Town
-2. The player's current position allows for northward movement
-3. The visual frame shows a clear path upward
-4. Moving north will progress toward the next story event with Prof. Birch
+In this room, moving right is both sufficient and optimal: it requires no interaction, has no hazards, and deterministically triggers the exit. Simplicity here reduces surface area for mistakes and keeps the example focused.
 
 CODE:
 ```python
 def run(state):
-    # Get player position and map info
-    player = state.get('player', {})
-    position = player.get('position', {})
-    current_map = state.get('map', {}).get('name', '')
-
-    # Goal: Reach Route 101 (north of current position)
-    # The path is clear, so move up
-    return 'up'  # Move north toward Route 101
-```"""
+    """
+    Minimal policy for the milestone: Exit the moving van.
+    Always returns 'right' to walk toward the exit trigger on the right edge.
+    This intentionally avoids conditional logic to serve as a simple, optimal example.
+    """
+    # No state inspection needed; the van exit is reached by moving right.
+    return 'right'
+```'''
 
     @staticmethod
     def _default_state_schema() -> str:
@@ -604,7 +609,7 @@ state = {
 
     # Game state
     'game': {
-        'game_state': str,            # "overworld", "battle", "menu", "title"
+        'game_state': str,            # "overworld", "dialog", "battle", "menu", "title"
         'is_in_battle': bool,
         'dialog_text': str,           # Current dialogue text (if any)
         'money': int,
@@ -625,52 +630,10 @@ state = {
         'tiles': [[tile_data, ...], ...]  # 15x15 grid centered on player
     },
 
-    # Milestones (progress tracking)
-    'milestones': {
-        'MILESTONE_NAME': {
-            'completed': bool,
-            'description': str
-        }
-    },
-
     # Other
     'step_number': int,
     'status': str
 }
-```
-
-**USAGE EXAMPLES:**
-```python
-# Example 1: Navigate based on position
-def run(state):
-    x = state['player']['position']['x']
-    y = state['player']['position']['y']
-
-    if x < 10:
-        return 'right'
-    elif y > 20:
-        return 'up'
-    else:
-        return 'down'
-
-# Example 2: Check if in battle
-def run(state):
-    if state['game']['is_in_battle']:
-        return 'a'  # Attack in battle
-    else:
-        return 'up'  # Move in overworld
-
-# Example 3: Check Pokemon health
-def run(state):
-    party = state['player']['party']
-    if party and len(party) > 0:
-        first_pokemon = party[0]
-        hp_percent = first_pokemon['current_hp'] / first_pokemon['max_hp']
-
-        if hp_percent < 0.3:
-            return 'start'  # Open menu to heal
-
-    return 'up'  # Continue exploring
 ```
 """
 
@@ -698,6 +661,9 @@ class CodeAgentPromptBuilder:
         next_milestone_info: Optional[Dict[str, Any]] = None,
         stuck_warning: str = "",
         previous_code: str = "",
+        execution_error: Optional[Dict[str, Any]] = None,
+        knowledge_base: str = "",
+        previous_actions: Optional[List[Any]] = None,
         **kwargs
     ) -> str:
         """
@@ -710,6 +676,12 @@ class CodeAgentPromptBuilder:
                 - 'description': 마일스톤 설명
             stuck_warning: Stuck 감지 경고 메시지 (선택)
             previous_code: 이전 코드 정보 (stuck일 때만)
+            execution_error: 실행 에러 정보 (에러 발생 시)
+                - 'error': 에러 메시지
+                - 'code': 에러가 발생한 코드
+                - 'traceback': 트레이스백 (선택)
+            knowledge_base: Knowledge base 텍스트 (선택)
+            previous_actions: 이전 코드가 생성한 action 리스트 (선택)
             **kwargs: 미래 확장성을 위한 추가 인자
 
         Returns:
@@ -733,31 +705,46 @@ class CodeAgentPromptBuilder:
         sections.append(self.build_game_state_section(formatted_state))
         sections.append("")
 
-        # 4. Stuck warning (if available)
-        if stuck_warning:
-            sections.append(self.build_stuck_warning_section(stuck_warning))
-            sections.append("")
-
-        # 5. Previous code (if stuck)
-        if previous_code:
-            sections.append(self.build_previous_code_section(previous_code))
-            sections.append("")
-
-        # 6. Next milestone (optional)
+        # 4. Next milestone (optional)
         if self.config.include_milestones and next_milestone_info:
             sections.append(self.build_milestone_section(next_milestone_info))
             sections.append("")
 
-        # 7. State schema (optional)
+        # 5. Knowledge Base (if available)
+        if knowledge_base:
+            sections.append(knowledge_base)
+            sections.append("")
+
+        # 6. Execution error (우선순위 높음 - stuck보다 먼저)
+        if execution_error:
+            sections.append(self.build_execution_error_section(execution_error))
+            sections.append("")
+
+        # 7. Stuck warning (if available)
+        if stuck_warning:
+            sections.append(self.build_stuck_warning_section(stuck_warning))
+            sections.append("")
+
+        # 8. Previous code (if stuck)
+        if previous_code:
+            sections.append(self.build_previous_code_section(previous_code))
+            sections.append("")
+
+        # 8.5. Actions from previous code (if available)
+        if previous_actions and len(previous_actions) > 0:
+            sections.append(self.build_previous_actions_section(previous_actions))
+            sections.append("")
+
+        # 9. State schema (optional)
         if self.config.include_state_schema:
             sections.append(self.build_state_schema_section())
             sections.append("")
 
-        # 8. Code requirements
+        # 10. Code requirements
         sections.append(self.build_code_requirements_section())
         sections.append("")
 
-        # 9. Example code (optional)
+        # 11. Example code (optional)
         if self.config.include_example_code:
             sections.append(self.build_example_code_section())
 
@@ -812,18 +799,76 @@ class CodeAgentPromptBuilder:
         """
         return f"""PREVIOUS CODE (NOT WORKING):
 The following code was generated but resulted in a stuck state (same game state repeated 3+ times).
-This code needs to be MODIFIED or COMPLETELY REWRITTEN with a different approach:
+This code needs to be modified or rewritten:
 
 ```python
 {previous_code}
 ```
 
-⚠️ IMPORTANT: The above code did NOT work. You MUST try a different strategy:
+IMPORTANT: The above code did NOT work. You can try a different strategy:
 - If it was moving in one direction, try a different direction
 - If it was pressing A, try exploring or moving instead
 - If it was exploring, try interacting with NPCs or objects
 - Consider the game state and visual carefully - what might have been blocking progress?
 """
+
+    def build_previous_actions_section(self, previous_actions: List[Any]) -> str:
+        """
+        이전 코드로 생성된 action들 표시 섹션
+
+        Args:
+            previous_actions: 이전 코드가 생성한 action 리스트
+
+        Returns:
+            포맷팅된 action 히스토리 섹션
+        """
+        # Limit to last 20 actions if too many
+        display_actions = previous_actions[-20:] if len(previous_actions) > 20 else previous_actions
+
+        # Format actions for display
+        actions_str = ', '.join(str(a) for a in display_actions)
+
+        total_count = len(previous_actions)
+        display_count = len(display_actions)
+
+        if total_count > display_count:
+            header = f"ACTIONS FROM PREVIOUS CODE (last {display_count} of {total_count}):"
+        else:
+            header = f"ACTIONS FROM PREVIOUS CODE (total {total_count}):"
+
+        return f"""{header}
+{actions_str}
+
+⚠️ These are the actions that the previous code generated. If stuck, analyze why these actions didn't work."""
+
+    def build_execution_error_section(self, execution_error: Dict[str, Any]) -> str:
+        """
+        실행 에러 피드백 섹션
+
+        Args:
+            execution_error: 에러 정보
+                - 'error': 에러 메시지
+                - 'code': 에러가 발생한 코드
+                - 'traceback': 트레이스백 (선택)
+
+        Returns:
+            포맷팅된 에러 피드백 섹션
+        """
+        error_msg = execution_error.get('error', 'Unknown error')
+        error_code = execution_error.get('code', '')
+        traceback_str = execution_error.get('traceback', '')
+
+        section = "⚠️ PREVIOUS CODE HAD AN EXECUTION ERROR:\n"
+        section += f"\nError: {error_msg}\n"
+        section += f"\nFailed code:\n```python\n{error_code}\n```\n"
+
+        if traceback_str:
+            section += f"\nDetailed traceback:\n{traceback_str}\n"
+
+        section += "\n🔧 Please analyze the error carefully and generate CORRECTED code that fixes this issue."
+        section += "\nMake sure the new code is syntactically correct and handles edge cases properly.\n"
+
+        return section
 
     def build_milestone_section(self, milestone_info: Dict[str, Any]) -> str:
         """
