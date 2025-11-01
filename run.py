@@ -70,7 +70,9 @@ def start_server(args):
 def start_frame_server(port):
     """Start the lightweight frame server for stream.html visualization"""
     try:
-        frame_cmd = ["python", "-m", "server.frame_server", "--port", str(port+1)]
+        # Use the same Python executable that's running this script
+        python_exe = sys.executable
+        frame_cmd = [python_exe, "-m", "server.frame_server", "--port", str(port+1)]
         frame_process = subprocess.Popen(
             frame_cmd,
             stdout=subprocess.PIPE,

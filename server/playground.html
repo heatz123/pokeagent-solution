@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pokemon Playground</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+        html, body {
+            font-family: 'VT323', monospace;
+            margin: 0;
+            padding: 0;
+            background-color: #0a0a0a;
+            color: #33ff33;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background-color: #1a1a1a;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            border-bottom: 2px solid #33ff33;
+            height: 60px;
+            box-sizing: border-box;
+        }
+
+        .header-logo {
+            color: #ff6177;
+            font-weight: bold;
+            margin-right: 20px;
+            text-shadow: 0 0 5px #ff6177;
+            font-size: 24px;
+        }
+
+        .header-title {
+            color: #33ff33;
+            font-size: 20px;
+        }
+
+        .content {
+            display: flex;
+            flex: 1;
+            padding: 10px;
+            gap: 10px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        .screen-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #1a1a1a;
+            border: 1px solid #33ff33;
+            padding: 15px;
+            box-sizing: border-box;
+        }
+
+        .section-title {
+            color: #ff6177;
+            margin-bottom: 10px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #ff6177;
+            font-size: 18px;
+        }
+
+        .frame-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #000000;
+            border: 1px solid #33ff33;
+            box-shadow: 0 0 10px #33ff33;
+        }
+
+        .frame {
+            max-width: 100%;
+            max-height: 100%;
+            image-rendering: pixelated;
+        }
+
+        .code-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #1a1a1a;
+            border: 1px solid #33ff33;
+            padding: 15px;
+            box-sizing: border-box;
+            gap: 10px;
+        }
+
+        .code-input {
+            flex: 1;
+            background-color: #0a0a0a;
+            border: 1px solid #33ff33;
+            color: #33ff33;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            padding: 10px;
+            resize: none;
+            outline: none;
+        }
+
+        .code-input::placeholder {
+            color: #666;
+        }
+
+        .button-container {
+            display: flex;
+            gap: 10px;
+        }
+
+        .send-button {
+            flex: 1;
+            background-color: #0a0a0a;
+            border: 2px solid #33ff33;
+            color: #33ff33;
+            padding: 10px 20px;
+            font-family: 'VT323', monospace;
+            font-size: 18px;
+            cursor: pointer;
+            box-shadow: 0 0 10px #33ff33;
+            transition: all 0.2s;
+        }
+
+        .send-button:hover {
+            background-color: #33ff33;
+            color: #0a0a0a;
+        }
+
+        .send-button:active {
+            transform: scale(0.98);
+        }
+
+        .send-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .clear-button {
+            background-color: #0a0a0a;
+            border: 2px solid #ff6177;
+            color: #ff6177;
+            padding: 10px 20px;
+            font-family: 'VT323', monospace;
+            font-size: 18px;
+            cursor: pointer;
+            box-shadow: 0 0 10px #ff6177;
+            transition: all 0.2s;
+        }
+
+        .clear-button:hover {
+            background-color: #ff6177;
+            color: #0a0a0a;
+        }
+
+        .result-container {
+            background-color: #0a0a0a;
+            border: 1px solid #33ff33;
+            padding: 10px;
+            min-height: 100px;
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+        }
+
+        .result-success {
+            color: #33ff33;
+        }
+
+        .result-error {
+            color: #ff6177;
+        }
+
+        .result-info {
+            color: #ffff33;
+        }
+
+        /* CRT effect */
+        .crt-lines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Prompt display styles */
+        .prompt-toggle-btn {
+            background-color: #0a0a0a;
+            border: 1px solid #666;
+            color: #666;
+            padding: 5px 10px;
+            font-family: 'VT323', monospace;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 5px;
+            transition: all 0.2s;
+        }
+
+        .prompt-toggle-btn:hover {
+            border-color: #ffff33;
+            color: #ffff33;
+        }
+
+        .prompt-content {
+            background-color: #0a0a0a;
+            border: 1px solid #666;
+            color: #888;
+            padding: 10px;
+            margin-top: 5px;
+            white-space: pre-wrap;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .prompt-content.visible {
+            display: block;
+        }
+
+        /* Mode toggle styles */
+        .mode-toggle {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 8px;
+            background-color: #0a0a0a;
+            border: 2px solid #666;
+            color: #666;
+            cursor: pointer;
+            font-family: 'VT323', monospace;
+            font-size: 16px;
+            transition: all 0.2s;
+        }
+
+        .mode-btn:hover {
+            border-color: #33ff33;
+        }
+
+        .mode-btn.active {
+            border-color: #33ff33;
+            color: #33ff33;
+            box-shadow: 0 0 10px #33ff33;
+        }
+
+        .mode-btn.auto-active {
+            border-color: #ffff33;
+            color: #ffff33;
+            box-shadow: 0 0 10px #ffff33;
+        }
+
+        /* Milestone display styles */
+        .milestone-section {
+            margin-top: 10px;
+        }
+
+        .milestone-display {
+            background-color: #0a0a0a;
+            border: 1px solid #33ff33;
+            padding: 10px;
+            font-size: 14px;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .milestone-display::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .milestone-display::-webkit-scrollbar-track {
+            background: #0a0a0a;
+        }
+
+        .milestone-display::-webkit-scrollbar-thumb {
+            background: #33ff33;
+        }
+
+        .milestone-progress {
+            color: #ffff33;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .milestone-item {
+            margin: 3px 0;
+        }
+
+        .milestone-completed {
+            color: #33ff33;
+        }
+
+        .milestone-pending {
+            color: #666;
+        }
+
+        .milestone-next {
+            background-color: #1a1a1a;
+            border: 1px solid #ffff33;
+            padding: 8px;
+            margin: 5px 0;
+            color: #ffff33;
+            font-weight: bold;
+            box-shadow: 0 0 10px rgba(255, 255, 51, 0.3);
+        }
+
+        .milestone-next .milestone-id {
+            font-size: 12px;
+            color: #999;
+            margin-top: 3px;
+        }
+
+        /* Response sections styles */
+        .response-sections {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .response-section {
+            background-color: #0a0a0a;
+            border: 1px solid #33ff33;
+            border-radius: 3px;
+        }
+
+        .response-section.highlight {
+            border-color: #ff6177;
+            box-shadow: 0 0 5px rgba(255, 97, 119, 0.3);
+        }
+
+        .response-section-header {
+            padding: 6px 10px;
+            background-color: #1a1a1a;
+            border-bottom: 1px solid #33ff33;
+            color: #33ff33;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        .response-section.highlight .response-section-header {
+            border-bottom-color: #ff6177;
+            color: #ff6177;
+        }
+
+        .response-section-content {
+            padding: 8px;
+            margin: 0;
+            color: #33ff33;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.4;
+        }
+
+        .response-section:not(.has-content) {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="crt-lines"></div>
+
+    <div class="header">
+        <div class="header-logo">Pokemon Playground //</div>
+        <div class="header-title">CODE = ACTION</div>
+    </div>
+
+    <div class="content">
+        <div class="screen-panel">
+            <div class="section-title"># SCREEN</div>
+            <div class="frame-container">
+                <img id="frame" class="frame" src="" alt="Game Frame">
+            </div>
+        </div>
+
+        <div class="code-panel">
+            <div class="section-title"># CODE</div>
+            <div class="mode-toggle">
+                <button id="manual-mode-btn" class="mode-btn active">MANUAL</button>
+                <button id="auto-mode-btn" class="mode-btn">AUTO</button>
+            </div>
+            <textarea id="code-input" class="code-input" placeholder="def run(state):
+    # Access state information (Python dict):
+    # state['player']['position']['x'], state['player']['position']['y']
+    # state['player']['location'] -> str
+    # state['player']['party'] -> list of pokemon
+    # state['game']['money'] -> int
+    # state['game']['badges'] -> list
+    # state['map']['tiles'] -> 15x15 grid
+
+    # Return an action string:
+    # Valid actions: 'a', 'b', 'start', 'select'
+    #                'up', 'down', 'left', 'right'
+
+    return 'a'"></textarea>
+
+            <div class="button-container">
+                <button id="clear-button" class="clear-button">CLEAR</button>
+                <button id="generate-button" class="send-button" style="border-color: #ffff33; box-shadow: 0 0 10px #ffff33; color: #ffff33;">GENERATE CODE</button>
+                <button id="send-button" class="send-button">SEND</button>
+            </div>
+
+            <div class="section-title"># RESULT</div>
+            <div id="result" class="result-container">
+                <div class="result-info">Ready. Write your code and press SEND.</div>
+            </div>
+
+            <div class="milestone-section">
+                <div class="section-title"># MILESTONES</div>
+                <div id="milestone-display" class="milestone-display">
+                    Loading...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Detect server address dynamically
+        const serverPort = window.location.port || '8000';
+        const framePort = (parseInt(window.location.port, 10) || 8000) + 1;
+        const serverUrl = `http://${window.location.hostname}:${serverPort}`;
+        const frameServerUrl = `http://${window.location.hostname}:${framePort}`;
+
+        console.log(`Using server URL: ${serverUrl}`);
+        console.log(`Using frame server URL: ${frameServerUrl}`);
+
+        // Frame polling with robust error handling
+        let isConnected = false;
+        let consecutiveErrors = 0;
+        let pollInterval = 25; // Start with 25ms (40 FPS)
+        const maxInterval = 200; // Max 200ms for faster recovery
+        let frameUpdateInterval;
+
+        async function pollFrameUpdate() {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+
+                const response = await fetch(`${frameServerUrl}/frame`, {
+                    signal: controller.signal,
+                    method: 'GET',
+                    cache: 'no-cache'
+                });
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.frame) {
+                        document.getElementById('frame').src = `data:image/png;base64,${data.frame}`;
+                    }
+
+                    // Reset error tracking on success
+                    consecutiveErrors = 0;
+                    pollInterval = 25; // Reset to fast polling (40 FPS)
+
+                    if (!isConnected) {
+                        isConnected = true;
+                        console.log('Frame server connected');
+                    }
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+            } catch (error) {
+                consecutiveErrors++;
+
+                // Exponential backoff for polling interval
+                if (consecutiveErrors > 2) {
+                    pollInterval = Math.min(pollInterval * 1.5, maxInterval);
+                    clearInterval(frameUpdateInterval);
+                    frameUpdateInterval = setInterval(pollFrameUpdate, pollInterval);
+                }
+
+                if (isConnected || consecutiveErrors === 1) {
+                    isConnected = false;
+                    console.log(`Frame server disconnected (${consecutiveErrors} errors): ${error.message}`);
+                }
+
+                // Log only every 5th consecutive error to avoid spam
+                if (consecutiveErrors % 5 === 0) {
+                    console.warn(`${consecutiveErrors} consecutive connection errors, polling every ${pollInterval}ms`);
+                }
+            }
+        }
+
+        // Start frame polling
+        frameUpdateInterval = setInterval(pollFrameUpdate, pollInterval);
+        pollFrameUpdate();
+
+        // Code execution
+        const codeInput = document.getElementById('code-input');
+        const sendButton = document.getElementById('send-button');
+        const clearButton = document.getElementById('clear-button');
+        const resultDiv = document.getElementById('result');
+
+        sendButton.addEventListener('click', async () => {
+            const code = codeInput.value.trim();
+
+            if (!code) {
+                resultDiv.innerHTML = '<div class="result-error">Error: Code is empty</div>';
+                return;
+            }
+
+            // Disable button during execution
+            sendButton.disabled = true;
+            sendButton.textContent = 'EXECUTING...';
+            resultDiv.innerHTML = '<div class="result-info">Executing Python code on server...</div>';
+
+            try {
+                // Send Python code to server for execution
+                const response = await fetch(`${serverUrl}/execute_code`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ code: code })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    resultDiv.innerHTML = `
+                        <div class="result-success">Success!</div>
+                        <div class="result-info">Action executed: ${result.action}</div>
+                        <div class="result-info">Execution time: ${result.execution_time?.toFixed(3)}s</div>
+                        <div class="result-info">${result.queue_status || 'Action queued'}</div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="result-error">Error:</div>
+                        <div class="result-error">${result.error}</div>
+                    `;
+                }
+
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result-error">Network Error: ${error.message}</div>
+                `;
+            } finally {
+                sendButton.disabled = false;
+                sendButton.textContent = 'SEND';
+            }
+        });
+
+        clearButton.addEventListener('click', () => {
+            codeInput.value = '';
+            resultDiv.innerHTML = '<div class="result-info">Code cleared.</div>';
+        });
+
+        // GENERATE CODE button handler
+        const generateButton = document.getElementById('generate-button');
+
+        generateButton.addEventListener('click', async () => {
+            // Disable button during generation
+            generateButton.disabled = true;
+            generateButton.textContent = 'GENERATING...';
+            resultDiv.innerHTML = '<div class="result-info">Asking LLM to generate code...</div>';
+
+            try {
+                // Request LLM code generation
+                const response = await fetch(`${serverUrl}/generate_code`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Insert generated code into textarea
+                    codeInput.value = result.code;
+
+                    // Display structured response if available
+                    let responseHtml = '';
+                    if (result.llm_response) {
+                        responseHtml = displayStructuredResponse(result.llm_response);
+                    }
+
+                    resultDiv.innerHTML = `
+                        <div class="result-success">Code generated successfully!</div>
+                        <div class="result-info">Generation time: ${result.generation_time?.toFixed(2)}s</div>
+                        <div class="result-info">Tokens: ${result.prompt_tokens || 0} prompt + ${result.completion_tokens || 0} completion</div>
+                        ${responseHtml}
+                        <button class="prompt-toggle-btn" onclick="togglePrompt()" style="margin-top: 10px;">View Prompt ▼</button>
+                        <div id="prompt-content" class="prompt-content">${escapeHtml(result.prompt || 'No prompt available')}</div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="result-error">Generation Error:</div>
+                        <div class="result-error">${result.error}</div>
+                    `;
+                }
+
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result-error">Network Error: ${error.message}</div>
+                `;
+            } finally {
+                generateButton.disabled = false;
+                generateButton.textContent = 'GENERATE CODE';
+            }
+        });
+
+        // Prompt toggle function
+        function togglePrompt() {
+            const promptDiv = document.getElementById('prompt-content');
+            const toggleBtn = document.querySelector('.prompt-toggle-btn');
+
+            if (promptDiv && toggleBtn) {
+                if (promptDiv.classList.contains('visible')) {
+                    promptDiv.classList.remove('visible');
+                    toggleBtn.textContent = 'View Prompt ▼';
+                } else {
+                    promptDiv.classList.add('visible');
+                    toggleBtn.textContent = 'Hide Prompt ▲';
+                }
+            }
+        }
+
+        // Allow Ctrl+Enter to send
+        codeInput.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                sendButton.click();
+            }
+        });
+
+        // Parse structured response
+        function parseStructuredResponse(text) {
+            const sections = {
+                analysis: '',
+                objectives: '',
+                plan: '',
+                reasoning: '',
+                action: '',
+                code: ''
+            };
+
+            const lines = text.split('\n');
+            let currentSection = null;
+            let currentContent = [];
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('ANALYSIS:')) {
+                    if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
+                    currentSection = 'analysis';
+                    currentContent = [];
+                } else if (trimmed.startsWith('OBJECTIVES:')) {
+                    if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
+                    currentSection = 'objectives';
+                    currentContent = [];
+                } else if (trimmed.startsWith('PLAN:')) {
+                    if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
+                    currentSection = 'plan';
+                    currentContent = [];
+                } else if (trimmed.startsWith('REASONING:')) {
+                    if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
+                    currentSection = 'reasoning';
+                    currentContent = [];
+                } else if (trimmed.startsWith('ACTION:')) {
+                    if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
+                    currentSection = 'action';
+                    currentContent = [];
+                } else if (trimmed.startsWith('CODE:')) {
+                    if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
+                    currentSection = 'code';
+                    currentContent = [];
+                } else if (currentSection) {
+                    currentContent.push(line);
+                }
+            }
+
+            if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
+
+            return sections;
+        }
+
+        // Display structured response
+        function displayStructuredResponse(fullResponse) {
+            const sections = parseStructuredResponse(fullResponse);
+
+            let html = '<div class="response-sections">';
+
+            // ANALYSIS
+            if (sections.analysis) {
+                html += `
+                    <div class="response-section has-content">
+                        <div class="response-section-header">🔍 ANALYSIS</div>
+                        <pre class="response-section-content">${escapeHtml(sections.analysis)}</pre>
+                    </div>
+                `;
+            }
+
+            // OBJECTIVES
+            if (sections.objectives) {
+                html += `
+                    <div class="response-section has-content">
+                        <div class="response-section-header">🎯 OBJECTIVES</div>
+                        <pre class="response-section-content">${escapeHtml(sections.objectives)}</pre>
+                    </div>
+                `;
+            }
+
+            // PLAN
+            if (sections.plan) {
+                html += `
+                    <div class="response-section has-content">
+                        <div class="response-section-header">📋 PLAN</div>
+                        <pre class="response-section-content">${escapeHtml(sections.plan)}</pre>
+                    </div>
+                `;
+            }
+
+            // REASONING
+            if (sections.reasoning) {
+                html += `
+                    <div class="response-section has-content">
+                        <div class="response-section-header">💡 REASONING</div>
+                        <pre class="response-section-content">${escapeHtml(sections.reasoning)}</pre>
+                    </div>
+                `;
+            }
+
+            // ACTION or CODE (highlighted)
+            const actionContent = sections.action || sections.code;
+            if (actionContent) {
+                const title = sections.action ? 'ACTION' : 'CODE';
+                const icon = sections.action ? '⚡' : '💻';
+                html += `
+                    <div class="response-section highlight has-content">
+                        <div class="response-section-header">${icon} ${title}</div>
+                        <pre class="response-section-content">${escapeHtml(actionContent)}</pre>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+
+            return html;
+        }
+
+        // Escape HTML helper
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Mode toggle functionality
+        let currentMode = 'manual';
+        let autoPollingInterval = null;
+
+        const manualModeBtn = document.getElementById('manual-mode-btn');
+        const autoModeBtn = document.getElementById('auto-mode-btn');
+
+        manualModeBtn.addEventListener('click', () => {
+            setMode('manual');
+        });
+
+        autoModeBtn.addEventListener('click', () => {
+            setMode('auto');
+        });
+
+        function setMode(mode) {
+            currentMode = mode;
+
+            if (mode === 'manual') {
+                // MANUAL mode
+                manualModeBtn.classList.add('active');
+                manualModeBtn.classList.remove('auto-active');
+                autoModeBtn.classList.remove('active');
+                autoModeBtn.classList.remove('auto-active');
+                codeInput.readOnly = false;
+
+                // Stop polling
+                if (autoPollingInterval) {
+                    clearInterval(autoPollingInterval);
+                    autoPollingInterval = null;
+                }
+
+                resultDiv.innerHTML = '<div class="result-info">MANUAL mode. Use GENERATE CODE button.</div>';
+            } else {
+                // AUTO mode
+                manualModeBtn.classList.remove('active');
+                autoModeBtn.classList.add('auto-active');
+                codeInput.readOnly = true;
+
+                // Start polling
+                startAutoPolling();
+
+                resultDiv.innerHTML = '<div class="result-info">AUTO mode. Polling code from client...</div>';
+            }
+        }
+
+        // AUTO mode polling
+        async function startAutoPolling() {
+            // Run immediately
+            await updateCodeFromAgent();
+
+            // Poll every 1 second
+            autoPollingInterval = setInterval(async () => {
+                await updateCodeFromAgent();
+            }, 1000);
+        }
+
+        async function updateCodeFromAgent() {
+            try {
+                const response = await fetch(`${serverUrl}/code_agent`);
+                const data = await response.json();
+
+                if (data.status === "active") {
+                    // Update textarea with extracted code
+                    codeInput.value = data.code;
+
+                    // Update result display
+                    const duration = data.duration || 0;
+                    const stepNum = data.current_step || 'N/A';
+
+                    // Try to display structured response if full_response is available
+                    let responseHtml = '';
+                    if (data.full_response) {
+                        responseHtml = displayStructuredResponse(data.full_response);
+                    }
+
+                    resultDiv.innerHTML = `
+                        <div class="result-success">AUTO MODE - Code Updated</div>
+                        <div class="result-info">Step: ${stepNum}</div>
+                        <div class="result-info">Generation time: ${duration.toFixed(2)}s</div>
+                        ${responseHtml}
+                    `;
+                } else if (data.status === "no_data") {
+                    // No data yet, keep waiting
+                    console.log('Waiting for CodeAgent data...');
+                }
+            } catch (error) {
+                console.error('Auto polling error:', error);
+            }
+        }
+
+        // Milestone update function
+        async function updateMilestones() {
+            try {
+                const response = await fetch(`${serverUrl}/milestones`);
+                const data = await response.json();
+
+                const display = document.getElementById('milestone-display');
+
+                let html = `<div class="milestone-progress">Progress: ${data.completed}/${data.total} (${(data.progress * 100).toFixed(0)}%)</div>`;
+
+                // Show next milestone prominently with description
+                if (data.next_milestone && data.next_milestone_description) {
+                    html += `<div class="milestone-next">
+                        📍 NEXT: ${data.next_milestone_description}
+                        <div class="milestone-id">${data.next_milestone}</div>
+                    </div>`;
+                } else {
+                    html += `<div class="milestone-next">🏆 All Milestones Complete!</div>`;
+                }
+
+                // Show recent 5 milestones around current position
+                const nextIdx = data.next_milestone_index || 0;
+                const start = Math.max(0, nextIdx - 2);
+                const recentMilestones = data.milestones.slice(start, start + 5);
+
+                recentMilestones.forEach(m => {
+                    const cls = m.completed ? 'milestone-completed' : 'milestone-pending';
+                    const icon = m.completed ? '✓' : '○';
+                    const isNext = m.id === data.next_milestone ? ' 👈' : '';
+                    html += `<div class="milestone-item ${cls}">${icon} ${m.description}${isNext}</div>`;
+                });
+
+                display.innerHTML = html;
+            } catch (error) {
+                console.error('Milestone error:', error);
+                document.getElementById('milestone-display').innerHTML = '<div style="color: #ff6177;">Error loading milestones</div>';
+            }
+        }
+
+        // Poll milestones every 1 second
+        setInterval(updateMilestones, 1000);
+
+        // Initial load
+        updateMilestones();
+    </script>
+</body>
+</html>

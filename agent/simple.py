@@ -928,8 +928,11 @@ Context: {context} | Coords: {coords} """
                         self.state.stuck_detection[key] = max(0, self.state.stuck_detection[key] - 1)
             
             # Update server with agent step and metrics (for agent thinking display)
-            update_server_metrics()
-            
+            try:
+                update_server_metrics()
+            except Exception as e:
+                logger.debug(f"Could not update server metrics: {e}")
+
             return actions
             
         except Exception as e:

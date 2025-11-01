@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Local application imports
 from pokemon_env.emulator import EmeraldEmulator
 from utils.anticheat import AntiCheatTracker
+from utils.milestone_manager import MilestoneManager
 
 # MCP tool imports - lazy loaded to avoid circular imports
 _pokemon_mcp_tools = None
@@ -246,9 +247,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize milestone manager (singleton)
+milestone_manager = MilestoneManager()
+
 # Models for API requests and responses
 class ActionRequest(BaseModel):
     buttons: list = []  # List of button names: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT
+
+class CodeExecutionRequest(BaseModel):
+    code: str  # Python code containing a run(state) function
+
+class CodeGenerationRequest(BaseModel):
+    """Request for LLM code generation"""
+    include_state: bool = True
+    max_tokens: int = 500
 
 class GameStateResponse(BaseModel):
     screenshot_base64: str
@@ -266,6 +278,48 @@ class ComprehensiveStateResponse(BaseModel):
     step_number: int
     status: str
     action_queue_length: int = 0
+
+# Helper function for extracting code from CodeAgent responses
+def extract_code_from_response(text):
+    """Extract code from structured LLM response
+
+    Args:
+        text: Full LLM response text (may contain ANALYSIS, OBJECTIVES, PLAN, REASONING, CODE sections)
+
+    Returns:
+        Extracted Python code string
+    """
+    # Try to find CODE: section first (for structured responses)
+    if "CODE:" in text:
+        code_section = text.split("CODE:")[1]
+
+        # Extract from code block if present
+        if "```python" in code_section:
+            return code_section.split("```python")[1].split("```")[0].strip()
+        elif "```" in code_section:
+            return code_section.split("```")[1].split("```")[0].strip()
+
+        # If no code block, take everything after CODE:
+        # until we hit another section or end
+        lines = code_section.split('\n')
+        code_lines = []
+        for line in lines:
+            # Stop at next section header
+            if any(line.strip().startswith(section) for section in ['ANALYSIS:', 'OBJECTIVES:', 'PLAN:', 'REASONING:']):
+                break
+            code_lines.append(line)
+
+        extracted = '\n'.join(code_lines).strip()
+        if extracted:
+            return extracted
+
+    # Fallback to markdown code blocks
+    if "```python" in text:
+        return text.split("```python")[1].split("```")[0].strip()
+    elif "```" in text:
+        return text.split("```")[1].split("```")[0].strip()
+
+    return text.strip()
 
 def periodic_milestone_updater():
     """Lightweight background thread that only updates milestones occasionally"""
@@ -607,6 +661,17 @@ async def get_stream():
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Stream interface not found")
 
+# Serve playground.html
+@app.get("/playground")
+async def get_playground():
+    """Serve the playground.html interface"""
+    try:
+        with open("server/playground.html", "r") as f:
+            content = f.read()
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Playground interface not found")
+
 # FastAPI endpoints
 @app.get("/health")
 async def get_health():
@@ -834,6 +899,238 @@ async def take_action(request: ActionRequest):
             # print( Exception in action endpoint: {e}")
         logger.error(f"Error taking action: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/generate_code")
+async def generate_code(request: CodeGenerationRequest = None):
+    """
+    Use LLM (OpenAI) to generate Python code based on current game state
+
+    Returns code with a run(state) function that determines the best action
+    """
+    global env
+
+    if env is None:
+        raise HTTPException(status_code=400, detail="Emulator not initialized")
+
+    try:
+        start_time = time.time()
+
+        # 1. Get current game state
+        with memory_lock:
+            state = env.get_comprehensive_state()
+
+        # 2. Convert screenshot to base64 (same logic as /state endpoint)
+        screenshot_base64 = None
+        buffer = io.BytesIO()
+        state["visual"]["screenshot"].save(buffer, format='PNG')
+        screenshot_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+        # 3. Format state for LLM (reuse existing formatter)
+        from utils.state_formatter import format_state_for_llm
+        state_text = format_state_for_llm(state)
+
+        # 4. Create prompt for code generation
+        prompt = f"""You are an expert Pokemon Emerald AI agent. Analyze the game screenshot AND the state information below to write Python code that determines the best action.
+
+VISUAL: You can see the current game screen in the attached image.
+
+CURRENT GAME STATE (text data):
+{state_text}
+
+REQUIREMENTS:
+1. Define a function called 'run' that takes 'state' as parameter
+2. Analyze BOTH the visual information and the state data
+3. Return ONE action string
+4. Valid actions: 'a', 'b', 'start', 'select', 'up', 'down', 'left', 'right'
+5. Add brief comments explaining your logic
+6. Keep it simple and focused
+
+EXAMPLE FORMAT:
+```python
+def run(state):
+    # Check if we're in a battle
+    if state.get('player', {{}}).get('in_battle'):
+        return 'a'  # Use first move to attack
+
+    # Otherwise, explore the world
+    return 'up'  # Move north
+```
+
+NOW GENERATE THE CODE (respond with ONLY the Python code, no markdown):"""
+
+        # 5. Call OpenAI Vision API
+        try:
+            import openai
+            import os
+
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OPENAI_API_KEY environment variable is not set")
+
+            # Build messages with vision support
+            client = openai.OpenAI(api_key=api_key)
+
+            # Create message content with text and image
+            message_content = [
+                {
+                    "type": "text",
+                    "text": prompt
+                }
+            ]
+
+            # Add screenshot if available
+            if screenshot_base64:
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{screenshot_base64}"
+                    }
+                })
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",  # Vision-capable model
+                messages=[
+                    {"role": "system", "content": "You are a Pokemon Emerald AI coding assistant. Generate clean, executable Python code based on visual and text information."},
+                    {"role": "user", "content": message_content}
+                ],
+                temperature=0.7,
+                max_tokens=request.max_tokens if request else 500
+            )
+
+            generated_text = response.choices[0].message.content
+
+            # Extract code from markdown if present
+            if "```python" in generated_text:
+                code = generated_text.split("```python")[1].split("```")[0].strip()
+            elif "```" in generated_text:
+                code = generated_text.split("```")[1].split("```")[0].strip()
+            else:
+                code = generated_text.strip()
+
+            # 5. Create state summary
+            player_info = state.get('player', {})
+            location = player_info.get('location', 'Unknown')
+            in_battle = player_info.get('in_battle', False)
+
+            summary = f"Location: {location}"
+            if in_battle:
+                summary += " [IN BATTLE]"
+
+            execution_time = time.time() - start_time
+
+            logger.info(f"Code generated successfully in {execution_time:.2f}s")
+
+            return {
+                "success": True,
+                "code": code,
+                "llm_response": generated_text,  # Full LLM response for structured display
+                "state_summary": summary,
+                "prompt": prompt,
+                "generation_time": execution_time,
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens
+            }
+
+        except Exception as llm_error:
+            logger.error(f"LLM generation error: {llm_error}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": f"LLM error: {str(llm_error)}"
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"Code generation error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e)
+            }
+        )
+
+@app.post("/execute_code")
+async def execute_code(request: CodeExecutionRequest):
+    """Execute user Python code and perform the resulting action"""
+    global env
+
+    if env is None:
+        raise HTTPException(status_code=400, detail="Emulator not initialized")
+
+    try:
+        start_time = time.time()
+
+        # Get current game state with lock to avoid race conditions
+        with memory_lock:
+            state = env.get_comprehensive_state()
+
+        # Execute user code in a restricted namespace
+        namespace = {'state': state}
+
+        try:
+            # Execute the user's code with a timeout
+            exec(request.code, namespace)
+
+            # Call the run function
+            if 'run' not in namespace:
+                raise ValueError("Code must define a 'run(state)' function")
+
+            action = namespace['run'](state)
+
+        except Exception as e:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": f"Code execution error: {str(e)}"
+                }
+            )
+
+        # Validate action
+        valid_actions = ['a', 'b', 'start', 'select', 'up', 'down', 'left', 'right']
+        if not isinstance(action, str):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": f"Action must be a string, got {type(action).__name__}"
+                }
+            )
+
+        action = action.lower()
+        if action not in valid_actions:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": f"Invalid action '{action}'. Must be one of: {', '.join(valid_actions)}"
+                }
+            )
+
+        # Execute the action using the existing action queue mechanism
+        action_request = ActionRequest(buttons=[action.upper()])
+        result = await take_action(action_request)
+
+        execution_time = time.time() - start_time
+
+        return {
+            "success": True,
+            "action": action.upper(),
+            "execution_time": execution_time,
+            "queue_status": result.get("message", "Action queued")
+        }
+
+    except Exception as e:
+        logger.error(f"Error executing code: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e)
+            }
+        )
 
 
 @app.get("/queue_status")
@@ -1374,6 +1671,73 @@ async def get_agent_thinking():
             "timestamp": time.time()
         }
 
+@app.get("/code_agent")
+async def get_code_agent_status():
+    """Get CodeAgent's current status and recent code generation
+
+    This endpoint is specifically designed for CodeAgent and provides:
+    - Extracted code for the textarea
+    - Full structured response (ANALYSIS, OBJECTIVES, PLAN, REASONING, CODE) for display
+    """
+    try:
+        # Get recent CodeAgent interactions from llm_log
+        log_files = sorted(glob.glob("llm_logs/llm_log_*.jsonl"), reverse=True)
+
+        # Find most recent code_generation interaction
+        latest_interaction = None
+        for log_file in log_files[:3]:  # Check only 3 most recent logs for performance
+            if os.path.exists(log_file):
+                try:
+                    with open(log_file, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                        # Start from end of file for better performance
+                        for line in reversed(lines):
+                            try:
+                                entry = json.loads(line.strip())
+                                if (entry.get("type") == "interaction" and
+                                    entry.get("interaction_type") == "code_generation"):
+                                    latest_interaction = entry
+                                    break
+                            except json.JSONDecodeError:
+                                continue
+                except Exception as e:
+                    logger.error(f"Error reading log {log_file}: {e}")
+
+            if latest_interaction:
+                break
+
+        if not latest_interaction:
+            return {
+                "status": "no_data",
+                "message": "No recent CodeAgent interactions found",
+                "timestamp": time.time()
+            }
+
+        # Extract data from the interaction
+        full_response = latest_interaction.get("response", "")
+        code_only = extract_code_from_response(full_response)
+
+        with step_lock:
+            current_step = agent_step_count
+
+        return {
+            "status": "active",
+            "code": code_only,  # Extracted code for textarea
+            "full_response": full_response,  # Full structured response for display
+            "duration": latest_interaction.get("duration", 0),
+            "current_step": current_step,
+            "timestamp": latest_interaction.get("timestamp", ""),
+            "model_info": latest_interaction.get("model_info", {})
+        }
+
+    except Exception as e:
+        logger.error(f"Error in code_agent endpoint: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": time.time()
+        }
+
 @app.get("/metrics")
 async def get_metrics():
     """Get cumulative metrics for the run"""
@@ -1544,14 +1908,58 @@ async def get_llm_logs():
 
 @app.get("/milestones")
 async def get_milestones():
-    """Get current milestones achieved based on persistent tracking"""
+    """Get current milestones with next milestone info"""
     if env is None:
         raise HTTPException(status_code=400, detail="Emulator not initialized")
-    
+
     try:
-        # Get milestones directly from emulator
-        return env.get_milestones()
-        
+        # Get completed milestones from emulator
+        completed_milestones = env.milestone_tracker.milestones
+
+        # Get all milestones with status from manager
+        all_milestones = milestone_manager.get_all_with_status(completed_milestones)
+
+        # Get next milestone
+        next_milestone = milestone_manager.get_next_milestone(completed_milestones)
+        next_milestone_info = milestone_manager.get_next_milestone_info(completed_milestones)
+        next_milestone_index = milestone_manager.get_next_milestone_index(completed_milestones)
+
+        # Calculate stats
+        completed_count = sum(1 for m in all_milestones if m['completed'])
+        total_count = milestone_manager.get_total_count()
+
+        # Get game state for additional info
+        game_state = env.get_comprehensive_state()
+        location_data = game_state.get("player", {}).get("location", "")
+        if isinstance(location_data, dict):
+            current_location = location_data.get("map_name", "UNKNOWN")
+        else:
+            current_location = str(location_data) if location_data else "UNKNOWN"
+
+        # Get badges
+        badges_data = game_state.get("game", {}).get("badges", [])
+        if isinstance(badges_data, list):
+            badge_count = sum(1 for b in badges_data if b)
+        else:
+            badge_count = badges_data if isinstance(badges_data, int) else 0
+
+        return {
+            "milestones": all_milestones,  # All milestones with descriptions
+            "completed": completed_count,
+            "total": total_count,
+            "progress": completed_count / total_count if total_count > 0 else 0,
+            "next_milestone": next_milestone,  # Next milestone ID
+            "next_milestone_description": next_milestone_info["description"] if next_milestone_info else None,
+            "next_milestone_index": next_milestone_index,
+            "current_location": current_location,
+            "badges": badge_count,
+            "pokedex_seen": game_state.get("game", {}).get("pokedex_seen", 0),
+            "pokedex_caught": game_state.get("game", {}).get("pokedex_caught", 0),
+            "party_size": len(game_state.get("player", {}).get("party", [])),
+            "tracking_system": "file_based",
+            "milestone_file": env.milestone_tracker.filename
+        }
+
     except Exception as e:
         logger.error(f"Error getting milestones: {e}")
         # Fallback to basic milestones if memory reading fails
@@ -1564,6 +1972,7 @@ async def get_milestones():
             "completed": 2,
             "total": 2,
             "progress": 1.0,
+            "next_milestone": None,
             "tracking_system": "fallback",
             "error": str(e)
         }

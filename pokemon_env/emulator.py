@@ -861,10 +861,10 @@ class EmeraldEmulator:
         import time
         current_time = time.time()
         
-        # Cache state for 100ms to avoid excessive memory reads
-        if hasattr(self, '_cached_state') and hasattr(self, '_cached_state_time'):
-            if current_time - self._cached_state_time < 0.1:  # 100ms cache
-                return self._cached_state
+        # # Cache state for 100ms to avoid excessive memory reads
+        # if hasattr(self, '_cached_state') and hasattr(self, '_cached_state_time'):
+        #     if current_time - self._cached_state_time < 0.1:  # 100ms cache
+        #         return self._cached_state
         
         # Use provided screenshot or get a new one
         if screenshot is None:
