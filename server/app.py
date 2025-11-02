@@ -1082,10 +1082,14 @@ async def execute_code(request: CodeExecutionRequest):
 
     try:
         start_time = time.time()
+        print("🔵 [execute_code] Starting...")
 
         # Get current game state with lock to avoid race conditions
+        print("🔵 [execute_code] Acquiring memory_lock...")
         with memory_lock:
+            print("🔵 [execute_code] Lock acquired, calling get_comprehensive_state()...")
             state = env.get_comprehensive_state()
+            print(f"🔵 [execute_code] Got state with {len(state)} keys")
 
         # Execute user code in a restricted namespace
         namespace = {'state': state}
@@ -1183,14 +1187,17 @@ async def get_comprehensive_state():
         # This avoids expensive operations on rapid requests
         state = env.get_comprehensive_state()
         
-        # Ensure game state is consistent with cached dialog state
-        # Use the same cached dialog state as the status endpoint
-        is_dialog = env._cached_dialog_state if env else False
-        if is_dialog:
-            state["game"]["game_state"] = "dialog"
-        else:
-            # Force overworld if not in dialog (respect 5-second timeout)
-            state["game"]["game_state"] = "overworld"
+        # # Ensure game state is consistent with cached dialog state
+        # # Use the same cached dialog state as the status endpoint
+        # is_dialog = env._cached_dialog_state if env else False
+        # if is_dialog:
+        #     state["game"]["game_state"] = "dialog"
+        # else:
+        #     # Force overworld if not in dialog (respect 5-second timeout)
+        #     state["game"]["game_state"] = "overworld"
+        # Dialog state is already correctly set by get_game_state()
+        # No need to override - get_game_state() checks title, battle, menu, dialog in correct priority
+        # Overriding here would incorrectly change menu/battle/title to "overworld"
         
         # Include milestones for storyline objective auto-completion
         if env.milestone_tracker:
@@ -2976,15 +2983,21 @@ def main():
         try:
             env.load_state(args.load_state)
             print(f"Loaded state from: {args.load_state}")
-            
+
             # Milestones and map data are automatically loaded by env.load_state()
             # Check what was loaded
             state_dir = os.path.dirname(args.load_state)
             base_name = os.path.splitext(os.path.basename(args.load_state))[0]
-            
+
             milestone_file = os.path.join(state_dir, f"{base_name}_milestones.json")
             if os.path.exists(milestone_file):
                 print(f"📂 Loaded milestones from: {milestone_file}")
+
+            # Debug: Print loaded milestone data
+            print(f"🔍 Milestone tracker has {len(env.milestone_tracker.milestones)} milestones loaded:")
+            for ms_id, ms_data in env.milestone_tracker.milestones.items():
+                if ms_data.get('completed'):
+                    print(f"  ✅ {ms_id}: completed at {ms_data.get('timestamp', 'unknown')}")
             
             grids_file = os.path.join(state_dir, f"{base_name}_grids.json")
             if os.path.exists(grids_file):

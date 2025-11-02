@@ -362,6 +362,7 @@ def format_state_for_llm_json(state_data):
     # Use shared conversion function
     formatted = convert_state_to_dict(state_data)
     formatted.pop("milestones")
+    formatted.pop("movement_preview", None)  # Remove movement_preview from CodeAgent state
 
     # Return as formatted JSON string
     return json.dumps(formatted, indent=2, default=str)
@@ -420,7 +421,7 @@ def _convert_tiles_to_grid(map_data, player_data, location_name=None):
         'D': 'Door',
         'S': 'Stairs/Warp',
         'W': 'Water',
-        '~': 'Tall Grass',
+        '~': 'Tall Grass (walkable)',
         'c': 'PC/Computer',
         'T': 'Television',
         'B': 'Bookshelf',

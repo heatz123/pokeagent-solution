@@ -163,9 +163,9 @@ class StuckDetector:
         if max_count >= self.threshold:
             return (
                 f"\n⚠️ WARNING: STUCK DETECTED! You are repeating the same game state ({max_count} times).\n"
-                "💡 TIP: Try a COMPLETELY DIFFERENT approach:\n"
-                "  - Move in a different direction\n"
-                "  - Interact with different NPCs or objects\n"
-                "  - Explore new areas\n"
+                # "💡 TIP: Try a COMPLETELY DIFFERENT approach:\n"
+                # "  - Move in a different direction\n"
+                # "  - Interact with different NPCs or objects\n"
+                # "  - Explore new areas\n"
             )
         return ""

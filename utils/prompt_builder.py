@@ -71,7 +71,7 @@ PLAN:
 Check MOVEMENT MEMORY for areas you've had trouble with before and plan your route accordingly.]
 
 REASONING:
-[Explain why you're choosing this specific action. Reference the MOVEMENT PREVIEW and MOVEMENT MEMORY sections. Check the visual frame for NPCs before moving. If you see NPCs in the image, avoid walking into them. Consider any failed movements or known obstacles from your memory.]
+[Explain why you're choosing this specific action. Reference the MOVEMENT MEMORY sections. Check the visual frame for NPCs before moving. If you see NPCs in the image, avoid walking into them. Consider any failed movements or known obstacles from your memory.]
 
 ACTION:
 [Your final action choice - PREFER SINGLE ACTIONS like 'RIGHT' or 'A'. Only use multiple actions like 'UP, UP, RIGHT' if you've verified each step is WALKABLE in the movement preview and map.]"""
@@ -79,19 +79,6 @@ ACTION:
     @staticmethod
     def _default_pathfinding_rules() -> str:
         return """
-🚨 PATHFINDING RULES:
-1. **SINGLE STEP FIRST**: Always prefer single actions (UP, DOWN, LEFT, RIGHT, A, B) unless you're 100% certain about multi-step paths
-2. **CHECK EVERY STEP**: Before chaining movements, verify EACH step in your sequence using the MOVEMENT PREVIEW and map
-3. **BLOCKED = STOP**: If ANY step shows BLOCKED in the movement preview, the entire sequence will fail
-4. **NO BLIND CHAINS**: Never chain movements through areas you can't see or verify as walkable
-5. **PERFORM PATHFINDING**: Find a path to a target location (X',Y') from the player position (X,Y) on the map. DO NOT TRAVERSE THROUGH OBSTACLES (#) -- it will not work.
-
-💡 SMART MOVEMENT STRATEGY:
-- Use MOVEMENT PREVIEW to see exactly what happens with each direction
-- If your target requires multiple steps, plan ONE step at a time
-- Only chain 2-3 moves if ALL intermediate tiles are confirmed WALKABLE
-- When stuck, try a different direction rather than repeating the same blocked move
-- After moving in a direction, you will be facing that direction for interactions with NPCs, etc.
 
 EXAMPLE - DON'T DO THIS:
 ❌ "I want to go right 5 tiles" → "RIGHT, RIGHT, RIGHT, RIGHT, RIGHT" (may hit wall on step 2!)
@@ -542,13 +529,14 @@ REASONING:
 
 CODE:
 [Your final Python code - define a function called 'run' that takes 'state' as parameter and returns ONE action string OR a list of actions.
-Add brief comments explaining your logic. It should work regardless of the specific state within the current milestone. Keep it simple and focused.]
+Add brief comments explaining your logic. Keep it simple and focused.]
 - Valid actions: 'a', 'b', 'start', 'select', 'up', 'down', 'left', 'right'
 - Single action: return 'up'
-- Multiple actions (executed in sequence): return ['up', 'up', 'a']
+- Multiple actions (executed in sequence, max 2): return ['up', 'a']
 
 REQUIREMENTS:
 - Return action as a lowercase string OR list of lowercase strings
+- Action sequences are limited to a maximum of 2 actions
 - Include helpful comments in your code"""
 
     @staticmethod
@@ -592,7 +580,6 @@ state = {
         'name': str,                  # Player's name
         'position': {'x': int, 'y': int},  # Current coordinates
         'location': str,              # Current map name (e.g., "LITTLEROOT TOWN")
-        'facing': str,                # "North", "South", "East", "West"
         'money': int,                 # Current money
         'party': [                    # List of Pokemon in party
             {
@@ -614,27 +601,49 @@ state = {
         'dialog_text': str,           # Current dialogue text (if any)
         'money': int,
         'badges': int,                # Number of badges earned
-        'time': (int, int, int),      # (hours, minutes, seconds)
-        'battle_info': {              # Only present during battles
-            'battle_type': str,
-            'player_pokemon': {...},
-            'opponent_pokemon': {...}
-        }
+        'time': (int, int, int)       # (hours, minutes, seconds)
     },
 
     # Map information
     'map': {
-        'id': int,
-        'current_map': str,           # Map name
-        'player_coords': {'x': int, 'y': int},
-        'tiles': [[tile_data, ...], ...]  # 15x15 grid centered on player
+        'location': str,              # Map location name
+        'current_map': str,           # Current map name
+        'player_coords': {'x': int, 'y': int},  # Player coordinates
+        'grid': [                     # 15x15 symbol grid centered on player
+            ['#', '.', 'P', 'D', ...],  # Symbols: . (walkable), # (blocked), P (player),
+            ['.', '.', '#', ...],       #          D (door), S (stairs), W (water), etc.
+            ...
+        ],
+        'grid_origin': {'x': int, 'y': int},  # Top-left corner absolute coords
+        'objects': [                  # Special objects in the grid
+            {
+                'type': str,          # 'door', 'stairs', 'computer', 'clock', etc.
+                'name': str,          # Human-readable name
+                'x': int, 'y': int,   # Absolute coordinates
+                'symbol': str         # Symbol on grid
+            }
+        ]
     },
 
-    # Other
-    'step_number': int,
-    'status': str
+    # Battle information (only present during battles)
+    'battle_info': {
+        'battle_type': str,           # 'wild', 'trainer', etc.
+        'player_pokemon': {...},      # Your active Pokemon details
+        'opponent_pokemon': {...}     # Opponent's active Pokemon details
+    }
 }
 ```
+
+Notes on state structure:
+- The 'grid' field contains a 15x15 grid of single-character symbols representing the map
+- Grid coordinates: grid[0][0] is at absolute position 'grid_origin', player is at center (grid[7][7])
+- map.grid shows basic terrain (walls '#', walkable '.', doors 'D', stairs 'S') but is incomplete
+- NPCs and some obstacles are NOT shown in map.grid - you MUST check the visual screenshot
+- Navigation strategy: Use visual image first for obstacles/NPCs, then map.grid for general layout
+- 'battle_info' is only available during battles
+- 'objects' list helps identify interactive elements like doors, stairs, NPCs
+- game_state and dialog_text can be unreliable - trust the visual image when detecting dialogue
+- You can use action sequences (maximum 2 actions) like ['up', 'a'] to handle interactions and movements together
 """
 
 

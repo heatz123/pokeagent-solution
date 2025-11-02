@@ -99,11 +99,19 @@ def main():
                 'action_queue_length': state_data.get('action_queue_length', 0)
             }
 
-            # 3. Agent step (generates code, executes, returns action)
+            # 3. Check if action queue is being processed
+            # If queue has actions, skip this step and let them finish
+            action_queue_length = game_state.get('action_queue_length', 0)
+            if action_queue_length > 0:
+                print(f"⏳ Waiting for action queue to finish ({action_queue_length} actions remaining)...")
+                time.sleep(args.delay)
+                continue
+
+            # 4. Agent step (generates code, executes, returns action)
             result = agent.step(game_state)
             action = result['action']
 
-            # 4. Send action to server
+            # 5. Send action to server
             try:
                 action_list = [action] if isinstance(action, str) else action
 
@@ -125,7 +133,7 @@ def main():
             except requests.exceptions.RequestException as e:
                 print(f"❌ Action send error: {e}")
 
-            # 5. Delay before next step
+            # 6. Delay before next step
             time.sleep(args.delay)
 
     except KeyboardInterrupt:

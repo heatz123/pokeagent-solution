@@ -44,7 +44,7 @@ class MilestoneManager:
         },
         {
             "id": "CLOCK_SET",
-            "description": "Set the clock in player's bedroom and get out of the house",
+            "description": "Set the clock in player's bedroom",
             "category": "task"
         },
         {
@@ -164,9 +164,82 @@ class MilestoneManager:
         # Build lookup dict for quick access by ID
         self._milestone_dict = {m["id"]: m for m in self.ALL_MILESTONES}
 
+        # Custom milestones (instance-level, not shared between instances)
+        self.custom_milestones = []
+
+    def add_custom_milestone(
+        self,
+        milestone_id: str,
+        description: str,
+        insert_after: str,
+        check_fn: callable,
+        category: str = "custom"
+    ):
+        """
+        Add a custom milestone to this manager instance
+
+        Args:
+            milestone_id: Unique milestone ID
+            description: Human-readable description for LLM
+            insert_after: ID of milestone to insert after
+            check_fn: Completion check function (game_state, action) -> bool
+            category: Category for UI display
+        """
+        self.custom_milestones.append({
+            "id": milestone_id,
+            "description": description,
+            "category": category,
+            "insert_after": insert_after,
+            "check_fn": check_fn
+        })
+
+    def get_ordered_milestones(self) -> list:
+        """
+        Get all milestones (base + custom) in correct order
+
+        Uses insert() to place custom milestones after their specified base milestone
+
+        Returns:
+            List of milestone dicts with id, description, category
+        """
+        # Start with a copy of base milestones
+        result = list(self.ALL_MILESTONES)
+
+        # Insert each custom milestone after its specified base milestone
+        for custom in self.custom_milestones:
+            insert_after_id = custom["insert_after"]
+
+            # Find the index of the base milestone
+            for i, milestone in enumerate(result):
+                if milestone["id"] == insert_after_id:
+                    # Insert custom milestone right after
+                    result.insert(i + 1, {
+                        "id": custom["id"],
+                        "description": custom["description"],
+                        "category": custom["category"]
+                    })
+                    break  # Move to next custom milestone
+
+        return result
+
+    def get_custom_check_fn(self, milestone_id: str):
+        """
+        Get the check function for a custom milestone
+
+        Args:
+            milestone_id: Milestone ID
+
+        Returns:
+            Check function or None if not a custom milestone
+        """
+        for custom in self.custom_milestones:
+            if custom["id"] == milestone_id:
+                return custom["check_fn"]
+        return None
+
     def get_milestone_info(self, milestone_id: str) -> dict:
         """
-        Get full milestone info by ID
+        Get full milestone info by ID (checks both base and custom)
 
         Args:
             milestone_id: Milestone ID string
@@ -174,15 +247,29 @@ class MilestoneManager:
         Returns:
             Dict with id, description, category or default if not found
         """
-        return self._milestone_dict.get(milestone_id, {
+        # Check base milestones first
+        if milestone_id in self._milestone_dict:
+            return self._milestone_dict[milestone_id]
+
+        # Check custom milestones
+        for custom in self.custom_milestones:
+            if custom["id"] == milestone_id:
+                return {
+                    "id": custom["id"],
+                    "description": custom["description"],
+                    "category": custom["category"]
+                }
+
+        # Not found
+        return {
             "id": milestone_id,
             "description": "Unknown milestone",
             "category": "unknown"
-        })
+        }
 
     def get_next_milestone(self, completed_milestones: dict) -> str:
         """
-        Get next uncompleted milestone ID
+        Get next uncompleted milestone ID (includes custom milestones)
 
         Args:
             completed_milestones: Dict like {"GAME_RUNNING": {"completed": True, ...}}
@@ -191,7 +278,10 @@ class MilestoneManager:
         Returns:
             Next milestone ID (string) or None if all complete
         """
-        for milestone in self.ALL_MILESTONES:
+        # Use ordered milestones which includes custom milestones
+        ordered = self.get_ordered_milestones()
+
+        for milestone in ordered:
             milestone_id = milestone["id"]
             # If not in dict, it's not completed yet
             if milestone_id not in completed_milestones:
