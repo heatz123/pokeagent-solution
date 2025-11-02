@@ -2068,6 +2068,32 @@ async def get_recent_actions():
         "timestamp": time.time()
     }
 
+@app.get("/subtask")
+async def get_subtask():
+    """Get current subtask information from file"""
+    subtask_file = ".pokeagent_cache/current_subtask.json"
+
+    try:
+        if os.path.exists(subtask_file):
+            with open(subtask_file, 'r') as f:
+                data = json.load(f)
+            return {
+                "subtask": data,
+                "timestamp": time.time()
+            }
+        else:
+            return {
+                "subtask": None,
+                "timestamp": time.time()
+            }
+    except Exception as e:
+        logger.error(f"Error reading subtask file: {e}")
+        return {
+            "subtask": None,
+            "error": str(e),
+            "timestamp": time.time()
+        }
+
 @app.get("/debug/milestones")
 async def debug_milestones():
     """Debug milestone tracking system"""

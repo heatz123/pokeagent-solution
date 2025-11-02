@@ -287,6 +287,192 @@ def format_map_grid(raw_tiles, player_facing="South", npcs=None, player_coords=N
     return grid
 
 
+def format_stitched_map_simple(area, player_world_x, player_world_y):
+    """
+    Format stitched map from MapArea - using world coordinates.
+
+    Shows explored_bounds rectangle with world coordinates.
+    Grid (0, 0) represents world coordinate (min_x - origin_x, min_y - origin_y).
+
+    Args:
+        area: MapArea object with map_data and explored_bounds
+        player_world_x: Player's world X coordinate
+        player_world_y: Player's world Y coordinate
+
+    Returns:
+        list of str: Each row as a string (for list format)
+    """
+    if not area or not area.map_data:
+        return []
+
+    # Get explored bounds (absolute coordinates)
+    bounds = area.explored_bounds if hasattr(area, 'explored_bounds') else {}
+    min_x = bounds.get('min_x', 0)
+    min_y = bounds.get('min_y', 0)
+    max_x = bounds.get('max_x', 20)
+    max_y = bounds.get('max_y', 20)
+
+    # Get origin offset for world coordinate calculation
+    offset = area.origin_offset if hasattr(area, 'origin_offset') else {'x': 0, 'y': 0}
+    offset_x = offset.get('x', 0)
+    offset_y = offset.get('y', 0)
+
+    # Calculate world coordinate origin
+    # Grid (0, 0) = World coordinate (min_x - offset_x, min_y - offset_y)
+    world_origin_x = min_x - offset_x
+    world_origin_y = min_y - offset_y
+
+    # Calculate grid dimensions
+    grid_width = max_x - min_x
+    grid_height = max_y - min_y
+
+    lines = []
+
+    # Header: world X coordinates
+    world_x_coords = [world_origin_x + x for x in range(grid_width + 1)]
+    x_coords = " ".join(f"{x:2}" for x in world_x_coords)
+    lines.append(f"    {x_coords}")
+
+    # Each row
+    for grid_y in range(grid_height + 1):
+        # Calculate world Y coordinate for this row
+        world_y = world_origin_y + grid_y
+
+        row_symbols = []
+        for grid_x in range(grid_width + 1):
+            # Calculate world X coordinate
+            world_x = world_origin_x + grid_x
+
+            # Convert to absolute coordinates for map_data access
+            abs_x = grid_x + min_x
+            abs_y = grid_y + min_y
+
+            # Check if this is player position (compare world coordinates)
+            if world_y == player_world_y and world_x == player_world_x:
+                row_symbols.append(" P")
+            # Direct access to map_data using absolute coordinates
+            elif (abs_y < len(area.map_data) and abs_x < len(area.map_data[0]) and
+                  area.map_data[abs_y] and area.map_data[abs_y][abs_x]):
+                tile = area.map_data[abs_y][abs_x]
+                symbol = format_tile_to_symbol(tile)
+                row_symbols.append(f" {symbol}")
+            else:
+                # Unexplored or out of bounds
+                row_symbols.append(" ?")
+
+        # Row with world Y coordinate
+        lines.append(f"{world_y:3} {''.join(row_symbols)}")
+
+    return lines
+
+
+def format_map_grid_with_coords(raw_tiles, player_grid_x, player_grid_y, player_world_x, player_world_y,
+                                 player_facing="South", npcs=None, location_name=None, trim_padding=True):
+    """
+    Format raw tile data into a traversability grid with explicit player grid coordinates.
+    Used for stitched maps where player is not at the center.
+
+    Args:
+        raw_tiles: 2D list of tile tuples (full stitched map)
+        player_grid_x: Player's X position in the grid (0-based index)
+        player_grid_y: Player's Y position in the grid (0-based index)
+        player_world_x: Player's actual game world X coordinate (for display)
+        player_world_y: Player's actual game world Y coordinate (for display)
+        player_facing: Player facing direction
+        npcs: List of NPC/object events with positions
+        location_name: Optional location name
+        trim_padding: If True, remove padding rows/columns
+
+    Returns:
+        str: Formatted grid as string
+    """
+    if not raw_tiles or len(raw_tiles) == 0:
+        return ""
+
+    height = len(raw_tiles)
+    width = len(raw_tiles[0]) if height > 0 else 0
+
+    # Validate player position
+    if player_grid_y < 0 or player_grid_y >= height or player_grid_x < 0 or player_grid_x >= width:
+        # Player is outside the grid, fallback to format_map_for_llm
+        return format_map_for_llm(raw_tiles, player_facing, npcs, (player_world_x, player_world_y), location_name)
+
+    grid = []
+    player_symbol = "P"
+
+    # Process each row
+    for y, row in enumerate(raw_tiles):
+        grid_row = []
+        for x, tile in enumerate(row):
+            if y == player_grid_y and x == player_grid_x:
+                # Player position
+                grid_row.append(player_symbol)
+            else:
+                # Regular tile
+                symbol = format_tile_to_symbol(tile)
+                grid_row.append(symbol)
+        grid.append(grid_row)
+
+    # Trim padding if requested
+    if trim_padding:
+        grid = _trim_grid_padding(grid)
+
+    # Convert grid to string with coordinate labels
+    lines = []
+
+    # Calculate coordinate range to display (world coordinates)
+    # We need to map grid coordinates to world coordinates
+    # player_grid_x/y corresponds to player_world_x/y
+    # So: world_x = (grid_x - player_grid_x) + player_world_x
+
+    # Find grid bounds after trimming
+    if not grid or not grid[0]:
+        return ""
+
+    trimmed_height = len(grid)
+    trimmed_width = len(grid[0])
+
+    # Calculate offset due to trimming (count removed top rows and left columns)
+    trim_offset_y = 0
+    trim_offset_x = 0
+
+    # Find how many rows were trimmed from top
+    for y in range(height):
+        if all(cell == '#' for cell in [format_tile_to_symbol(raw_tiles[y][x]) for x in range(width)]):
+            trim_offset_y += 1
+        else:
+            break
+
+    # Find how many columns were trimmed from left
+    for x in range(width):
+        if all(format_tile_to_symbol(raw_tiles[y][x]) == '#' for y in range(height)):
+            trim_offset_x += 1
+        else:
+            break
+
+    # Adjust player grid position for trimming
+    adjusted_player_grid_x = player_grid_x - trim_offset_x
+    adjusted_player_grid_y = player_grid_y - trim_offset_y
+
+    # Calculate world coordinate for top-left of trimmed grid
+    world_start_x = player_world_x - adjusted_player_grid_x
+    world_start_y = player_world_y - adjusted_player_grid_y
+
+    # Add coordinate header (X axis)
+    x_coords = [str(world_start_x + i) for i in range(trimmed_width)]
+    # Pad numbers to align properly
+    max_coord_len = max(len(c) for c in x_coords)
+    lines.append("  " + " ".join(c.rjust(max_coord_len) for c in x_coords))
+
+    # Add each row with Y coordinate
+    for i, row in enumerate(grid):
+        y_coord = world_start_y + i
+        row_str = " ".join(cell.rjust(max_coord_len) for cell in row)
+        lines.append(f"{y_coord} {row_str}")
+
+    return "\n".join(lines)
+
+
 def format_map_for_display(raw_tiles, player_facing="South", title="Map", npcs=None, player_coords=None):
     """
     Format raw tiles into a complete display string with headers and legend.
@@ -348,7 +534,7 @@ def get_symbol_legend():
         "S": "Stairs/Warp",
         "W": "Water",
         "~": "Tall grass",
-        "PC": "PC/Computer",
+        "c": "PC/Computer",
         "T": "Television",
         "B": "Bookshelf", 
         "?": "Unexplored area",

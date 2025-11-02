@@ -328,14 +328,16 @@ def convert_state_to_dict(state_data):
         if movement_preview:
             formatted["movement_preview"] = movement_preview
 
-    # Add map grid in compact format with absolute coordinates
+    # Generate ASCII map using stitched map data (global coordinates)
     if map_data.get('tiles') and player_data.get('position'):
-        grid_data = _convert_tiles_to_grid(map_data, player_data, player_location)
-        if grid_data:
-            formatted["map"]["grid"] = grid_data["grid"]
-            formatted["map"]["grid_origin"] = grid_data["origin"]
-            if grid_data["objects"]:
-                formatted["map"]["objects"] = grid_data["objects"]
+        ascii_map_data = _generate_ascii_map_from_stitched_data(map_data, player_data, player_location)
+        if ascii_map_data:
+            formatted["map"]["ascii_map"] = ascii_map_data["ascii_map"]
+            formatted["map"]["legend"] = ascii_map_data["legend"]
+            formatted["map"]["player_position"] = ascii_map_data["player_position"]
+            formatted["map"]["explored_bounds"] = ascii_map_data["explored_bounds"]
+            if ascii_map_data.get("warps"):
+                formatted["map"]["warps"] = ascii_map_data["warps"]
 
     # Add battle info if in battle
     if game_data.get('is_in_battle') and game_data.get('battle_info'):
@@ -366,6 +368,217 @@ def format_state_for_llm_json(state_data):
 
     # Return as formatted JSON string
     return json.dumps(formatted, indent=2, default=str)
+
+def _extract_object_positions_from_area(area):
+    """
+    Extract interactive object positions from MapArea with world coordinates.
+
+    Returns objects that are NOT terrain (excludes walkable paths, walls,
+    tall grass, water, unexplored areas, and player).
+
+    Args:
+        area: MapArea instance with map_data, explored_bounds, origin_offset
+
+    Returns:
+        list: [(symbol, description, world_x, world_y), ...]
+        Sorted by (world_y, world_x) for consistent ordering
+    """
+    from utils.map_formatter import format_tile_to_symbol, get_symbol_legend
+
+    # Get symbol descriptions
+    symbol_legend = get_symbol_legend()
+
+    # Define symbols to EXCLUDE (terrain and player)
+    terrain_symbols = {'.', '#', '~', 'W', '?', 'P'}
+
+    objects = []
+
+    # Get area info
+    bounds = area.explored_bounds
+    offset = area.origin_offset
+    min_x, min_y = bounds['min_x'], bounds['min_y']
+    max_x, max_y = bounds['max_x'], bounds['max_y']
+    offset_x, offset_y = offset['x'], offset['y']
+
+    # Calculate world coordinate origin
+    world_origin_x = min_x - offset_x
+    world_origin_y = min_y - offset_y
+
+    # Scan explored area for objects
+    for abs_y in range(min_y, max_y + 1):
+        for abs_x in range(min_x, max_x + 1):
+            # Check if tile exists
+            if (abs_y < len(area.map_data) and abs_x < len(area.map_data[0]) and
+                area.map_data[abs_y] and area.map_data[abs_y][abs_x]):
+
+                tile = area.map_data[abs_y][abs_x]
+                symbol = format_tile_to_symbol(tile)
+
+                # Skip terrain symbols
+                if symbol in terrain_symbols:
+                    continue
+
+                # Skip if not in legend (shouldn't happen)
+                if symbol not in symbol_legend:
+                    continue
+
+                # Calculate world coordinates
+                grid_x = abs_x - min_x
+                grid_y = abs_y - min_y
+                world_x = world_origin_x + grid_x
+                world_y = world_origin_y + grid_y
+
+                description = symbol_legend[symbol]
+                objects.append((symbol, description, world_x, world_y))
+
+    # Sort by position for consistency (top to bottom, left to right)
+    objects.sort(key=lambda x: (x[3], x[2]))  # Sort by world_y, then world_x
+
+    return objects
+
+def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=None):
+    """
+    Generate ASCII map using stitched map data from MapStitcher (global coordinates).
+
+    This replaces the old grid-based approach with a full ASCII visualization of the
+    current map area using accumulated map data.
+
+    Args:
+        map_data: Map information dict (with tiles, map_bank, map_number)
+        player_data: Player information dict
+        location_name: Optional location name for context
+
+    Returns:
+        dict: {
+            "ascii_map": str (full ASCII map with coordinates),
+            "legend": str (dynamic legend),
+            "player_position": dict (x, y, facing),
+            "explored_bounds": dict (min_x, max_x, min_y, max_y),
+            "warps": list (warp information)
+        } or None if data not available
+    """
+    from utils.map_stitcher_singleton import get_instance
+    from utils.map_formatter import generate_dynamic_legend
+
+    # Get player position
+    player_pos = player_data.get('position', {})
+    player_x = player_pos.get('x', 0)
+    player_y = player_pos.get('y', 0)
+    player_facing = player_data.get('facing', 'South')
+
+    # Get map bank and number to identify current map
+    map_bank = map_data.get('map_bank', 0)
+    map_number = map_data.get('map_number', 0)
+    current_map_id = (map_bank << 8) | map_number
+
+    # Get MapStitcher instance
+    map_stitcher = get_instance()
+
+    # Try to get stitched map data for current map
+    stitched_map_data = None
+    explored_bounds = None
+    warp_info = []
+
+    if current_map_id in map_stitcher.map_areas:
+        area = map_stitcher.map_areas[current_map_id]
+        stitched_map_data = area.map_data
+        explored_bounds = area.explored_bounds
+
+        # Extract warp information (convert to world coordinates)
+        for conn in map_stitcher.warp_connections:
+            if conn.from_map_id == current_map_id:
+                # Get destination location name
+                dest_name = "Unknown"
+                if conn.to_map_id in map_stitcher.map_areas:
+                    dest_name = map_stitcher.map_areas[conn.to_map_id].location_name
+
+                # Convert warp position from absolute to world coordinates
+                # from_position is (x, y) in absolute coordinates
+                warp_abs_x, warp_abs_y = conn.from_position
+
+                # Get origin offset for conversion
+                offset = area.origin_offset if hasattr(area, 'origin_offset') else {'x': 0, 'y': 0}
+
+                # World coords = absolute coords - origin offset
+                warp_world_x = warp_abs_x - offset.get('x', 0)
+                warp_world_y = warp_abs_y - offset.get('y', 0)
+
+                warp_info.append({
+                    "position": {"x": warp_world_x, "y": warp_world_y},
+                    "leads_to": dest_name,
+                    "type": conn.warp_type,
+                    "direction": conn.direction
+                })
+
+    # Fallback: use current 15x15 view if stitched data not available
+    if stitched_map_data is None:
+        raw_tiles = map_data.get('tiles')
+        if not raw_tiles:
+            return None
+
+        # Use current view
+        stitched_map_data = raw_tiles
+
+        # Calculate bounds for 15x15 view
+        radius = 7
+        explored_bounds = {
+            "min_x": player_x - radius,
+            "max_x": player_x + radius,
+            "min_y": player_y - radius,
+            "max_y": player_y + radius
+        }
+
+    # Generate ASCII map - SIMPLE! 0,0-based grid
+    from utils.map_formatter import format_stitched_map_simple, format_map_for_llm
+
+    if current_map_id in map_stitcher.map_areas:
+        # Use stitched map - returns list of strings directly
+        area = map_stitcher.map_areas[current_map_id]
+        ascii_map = format_stitched_map_simple(area, player_x, player_y)
+    else:
+        # Fallback: use current 15x15 view for new areas
+        ascii_map_str = format_map_for_llm(
+            raw_tiles=map_data.get('tiles', []),
+            player_facing=player_facing,
+            npcs=None,
+            player_coords=(player_x, player_y),
+            location_name=location_name
+        )
+        ascii_map = ascii_map_str.split('\n') if ascii_map_str else []
+
+    # Generate dynamic legend from the ascii_map
+    if ascii_map:
+        # Join for legend generation (expects string)
+        ascii_map_joined = '\n'.join(ascii_map)
+        legend_str = generate_dynamic_legend(ascii_map_joined)
+        # Convert legend to list of strings as well for consistency
+        legend = legend_str.split('\n')
+
+        # Add object positions if we have stitched map
+        if current_map_id in map_stitcher.map_areas:
+            area = map_stitcher.map_areas[current_map_id]
+            object_positions = _extract_object_positions_from_area(area)
+
+            if object_positions:
+                legend.append("")
+                legend.append("Object positions (world coordinates):")
+                for symbol, description, world_x, world_y in object_positions:
+                    legend.append(f"  {symbol}={description} at ({world_x}, {world_y})")
+    else:
+        legend = ["Legend not available"]
+
+    return {
+        "ascii_map": ascii_map,  # Now a list of strings
+        "legend": legend,  # Now a list of strings
+        "player_position": {
+            "x": player_x,
+            "y": player_y,
+            "facing": player_facing
+        },
+        "explored_bounds": explored_bounds,
+        "warps": warp_info
+    }
+
 
 def _convert_tiles_to_grid(map_data, player_data, location_name=None):
     """
