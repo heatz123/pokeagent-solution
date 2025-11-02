@@ -15,6 +15,7 @@ from utils.milestone_manager import MilestoneManager
 from utils.prompt_builder import CodeAgentPromptBuilder, CodePromptConfig
 from utils.stuck_detector import StuckDetector
 from utils.knowledge_base import KnowledgeBase
+from utils.subtask_manager import SubtaskManager
 
 
 class CodeAgent:
@@ -34,6 +35,12 @@ class CodeAgent:
 
         # Milestone manager (like SimpleAgent's objectives)
         self.milestone_manager = MilestoneManager()
+
+        # Subtask manager for dynamic task decomposition
+        self.subtask_manager = SubtaskManager(self.milestone_manager)
+
+        # Subtask feature flag (enable/disable subtask-based execution)
+        self.use_subtasks = os.getenv("USE_SUBTASKS", "false").lower() == "true"
 
         # Custom milestone completion tracking (client-side only)
         self.custom_milestone_completions = {}
@@ -87,6 +94,10 @@ class CodeAgent:
             {'action': 'up'} or {'action': ['up', 'a']}
         """
         self.step_count += 1
+
+        # NEW: Subtask-based execution (if enabled)
+        if self.use_subtasks:
+            return self._step_with_subtasks(game_state)
 
         # 1. Check for stuck pattern
         is_stuck = self.stuck_detector.check_stuck(game_state)
@@ -513,3 +524,473 @@ class CodeAgent:
         milestones.update(self.custom_milestone_completions)
 
         return milestones
+
+    def determine_situation(self, current_subtask, state):
+        """
+        Determine current situation for subtask-based processing
+
+        Args:
+            current_subtask: Current active subtask dict (or None)
+            state: Current game state dict
+
+        Returns:
+            str: One of "SUCCESS_ACHIEVED", "PRECONDITION_FAILED", "STUCK", "NORMAL"
+        """
+        # No subtask = NORMAL (initial state or progressing without subtasks)
+        if not current_subtask:
+            return "NORMAL"
+
+        # Get last action for condition evaluation
+        prev_action = self._last_action
+
+        # Check SUCCESS condition first
+        if current_subtask.get('success_condition'):
+            try:
+                if self.subtask_manager.evaluate_condition(
+                    current_subtask['success_condition'], state, prev_action
+                ):
+                    return "SUCCESS_ACHIEVED"
+            except Exception as e:
+                print(f"⚠️ Error evaluating success condition: {e}")
+
+        # Check PRECONDITION
+        if current_subtask.get('precondition'):
+            try:
+                if not self.subtask_manager.evaluate_condition(
+                    current_subtask['precondition'], state, prev_action
+                ):
+                    return "PRECONDITION_FAILED"
+            except Exception as e:
+                print(f"⚠️ Error evaluating precondition: {e}")
+
+        # Check STUCK (using existing stuck detector)
+        if self.stuck_detector.check_stuck(state):
+            return "STUCK"
+
+        # Otherwise NORMAL (progressing normally)
+        return "NORMAL"
+
+
+    def parse_unified_response(self, response):
+        """
+        Parse VLM response for subtask-based code generation
+
+        Extracts three main sections:
+        - TASK_DECOMPOSITION: Decision on subtask management
+        - CONDITION_REFINEMENT: Updated preconditions/success conditions
+        - CODE: Policy implementation
+
+        Args:
+            response: VLM response string
+
+        Returns:
+            dict with:
+                - task_decision: 'KEEP_CURRENT' | 'CREATE_NEW' | 'DECOMPOSE'
+                - new_subtask: dict with description, precondition, success_condition (if CREATE_NEW/DECOMPOSE)
+                - refined_precondition: str (if refined)
+                - refined_success: str (if refined)
+                - code: str (policy code)
+        """
+        result = {}
+
+        try:
+            # Extract TASK_DECOMPOSITION section
+            decomp_section = self._extract_section(response, 'TASK_DECOMPOSITION:', 'CONDITION_REFINEMENT:')
+
+            # Parse decision
+            decision_line = [line for line in decomp_section.split('\n') if 'Decision:' in line]
+            if decision_line:
+                decision_text = decision_line[0].split('Decision:')[-1].strip().upper()
+
+                if 'KEEP_CURRENT' in decision_text:
+                    result['task_decision'] = 'KEEP_CURRENT'
+                elif 'CREATE_NEW' in decision_text:
+                    result['task_decision'] = 'CREATE_NEW'
+                elif 'DECOMPOSE' in decision_text:
+                    result['task_decision'] = 'DECOMPOSE'
+                else:
+                    result['task_decision'] = 'KEEP_CURRENT'  # default
+            else:
+                result['task_decision'] = 'KEEP_CURRENT'  # default
+
+            # If CREATE_NEW or DECOMPOSE, extract subtask info
+            if result['task_decision'] in ['CREATE_NEW', 'DECOMPOSE']:
+                desc = self._extract_after_marker(decomp_section, 'Description:')
+                pre = self._extract_after_marker(decomp_section, 'Precondition:')
+                succ = self._extract_after_marker(decomp_section, 'Success Condition:')
+
+                if desc.strip():
+                    result['new_subtask'] = {
+                        'description': desc.strip(),
+                        'precondition': pre.strip(),
+                        'success_condition': succ.strip()
+                    }
+                else:
+                    result['new_subtask'] = None
+            else:
+                result['new_subtask'] = None
+
+            # Extract CONDITION_REFINEMENT section
+            refine_section = self._extract_section(response, 'CONDITION_REFINEMENT:', 'CODE:')
+            if 'NO_CHANGE' not in refine_section.upper():
+                refined_pre = self._extract_after_marker(refine_section, 'PRECONDITION:')
+                refined_succ = self._extract_after_marker(refine_section, 'SUCCESS_CONDITION:')
+
+                if refined_pre.strip():
+                    result['refined_precondition'] = refined_pre.strip()
+                if refined_succ.strip():
+                    result['refined_success'] = refined_succ.strip()
+
+            # Extract CODE section (reuse existing _extract_code method)
+            result['code'] = self._extract_code(response)
+
+        except Exception as e:
+            print(f"⚠️ Error parsing unified response: {e}")
+            # Return safe defaults
+            result = {
+                'task_decision': 'KEEP_CURRENT',
+                'new_subtask': None,
+                'code': 'return "b"  # Parse error - wait'
+            }
+
+        return result
+
+    def _extract_section(self, text, start_marker, end_marker):
+        """
+        Extract text between two markers
+
+        Args:
+            text: Source text
+            start_marker: Starting marker (e.g., 'TASK_DECOMPOSITION:')
+            end_marker: Ending marker (e.g., 'CONDITION_REFINEMENT:')
+
+        Returns:
+            Extracted section text
+        """
+        try:
+            start_idx = text.find(start_marker)
+            if start_idx == -1:
+                return ""
+
+            # Start after the marker
+            start_idx += len(start_marker)
+
+            end_idx = text.find(end_marker, start_idx)
+            if end_idx == -1:
+                # If no end marker, take until end of text
+                return text[start_idx:].strip()
+
+            return text[start_idx:end_idx].strip()
+
+        except Exception as e:
+            print(f"⚠️ Error extracting section {start_marker} to {end_marker}: {e}")
+            return ""
+
+    def _extract_after_marker(self, text, marker):
+        """
+        Extract text after a marker until the next line that starts with a capital letter marker
+
+        Args:
+            text: Source text
+            marker: Marker to find (e.g., 'Description:')
+
+        Returns:
+            Extracted text
+        """
+        try:
+            idx = text.find(marker)
+            if idx == -1:
+                return ""
+
+            # Start after marker
+            start = idx + len(marker)
+
+            # Find next line
+            lines = text[start:].split('\n')
+            if not lines:
+                return ""
+
+            # First line after marker
+            first_line = lines[0].strip()
+
+            # Check if we need to look at subsequent lines
+            # Stop at next capitalized marker (e.g., "Description:", "Precondition:")
+            result = [first_line]
+            for line in lines[1:]:
+                stripped = line.strip()
+                # Stop if we hit another marker (starts with capital and has colon)
+                if stripped and stripped[0].isupper() and ':' in stripped:
+                    break
+                if stripped:  # Non-empty line
+                    result.append(stripped)
+
+            return ' '.join(result).strip()
+
+        except Exception as e:
+            print(f"⚠️ Error extracting after marker {marker}: {e}")
+            return ""
+
+    def create_next_subtask(self, main_milestone, subtask_data, state):
+        """
+        Create next subtask (only one at a time)
+
+        Args:
+            main_milestone: Main milestone dict
+            subtask_data: dict with description, precondition, success_condition
+            state: Current game state
+
+        Returns:
+            Created subtask dict
+        """
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        subtask_id = f"{main_milestone['id']}_subtask_{timestamp}"
+
+        subtask = {
+            'id': subtask_id,
+            'parent_milestone_id': main_milestone['id'],
+            'description': subtask_data['description'],
+            'precondition': subtask_data.get('precondition', ''),
+            'success_condition': subtask_data.get('success_condition', ''),
+            'code': None,
+            'created_at': timestamp
+        }
+
+        # Set in SubtaskManager (also registers as custom milestone)
+        self.subtask_manager.set_current_subtask(subtask)
+
+        print(f"📍 Created new subtask: {subtask['description']}")
+        print(f"   Precondition: {subtask['precondition']}")
+        print(f"   Success: {subtask['success_condition']}")
+
+        return subtask
+
+    def update_subtask_conditions(self, current_subtask, parsed):
+        """
+        Update precondition and/or success_condition of current subtask
+
+        Args:
+            current_subtask: Current subtask dict
+            parsed: Parsed response with optional refined_precondition and refined_success
+
+        Returns:
+            Updated subtask dict
+        """
+        if not current_subtask:
+            return None
+
+        updated = False
+
+        if parsed.get('refined_precondition'):
+            current_subtask['precondition'] = parsed['refined_precondition']
+            print(f"🔧 Updated precondition: {parsed['refined_precondition']}")
+            updated = True
+
+        if parsed.get('refined_success'):
+            current_subtask['success_condition'] = parsed['refined_success']
+            print(f"🔧 Updated success condition: {parsed['refined_success']}")
+            updated = True
+
+        # Re-register as custom milestone if updated
+        if updated:
+            self.subtask_manager._register_as_custom_milestone(current_subtask)
+
+        return current_subtask
+
+    def process_milestone_with_subtasks(self, frame, state, main_milestone):
+        """
+        Process milestone using subtask decomposition
+
+        This is the main integration function that combines all subtask components.
+
+        Args:
+            frame: Game frame (PIL Image)
+            state: Current game state
+            main_milestone: Main milestone dict
+
+        Returns:
+            str: Action to take ('up', 'down', 'left', 'right', 'a', 'b')
+        """
+        # 1. Get current subtask
+        current_subtask = self.subtask_manager.get_current_subtask()
+
+        # 2. Determine situation
+        situation = self.determine_situation(current_subtask, state)
+
+        print(f"\n{'='*60}")
+        print(f"Milestone: {main_milestone['description']}")
+        print(f"Subtask: {current_subtask['description'] if current_subtask else 'None'}")
+        print(f"Situation: {situation}")
+        print(f"{'='*60}")
+
+        # 3. Check if we can reuse existing code (NORMAL with code)
+        if situation == "NORMAL" and current_subtask and current_subtask.get('code'):
+            print("ℹ️ Reusing existing code...")
+            try:
+                action = self._execute_code(current_subtask['code'], state)
+                return action
+            except Exception as e:
+                print(f"⚠️ Code execution failed: {e}")
+                # Fall through to VLM call
+
+        # 4. Need VLM call for any other situation
+        print(f"🤖 Calling VLM for {situation} situation...")
+
+        # Build prompt using PromptBuilder
+        prompt = self.prompt_builder.build_subtask_prompt(
+            main_milestone=main_milestone,
+            current_subtask=current_subtask,
+            situation=situation,
+            state=state,
+            milestone_manager=self.milestone_manager
+        )
+
+        # Call VLM and measure duration
+        start = time.time()
+        response = self._call_vlm(frame, prompt)
+        duration = time.time() - start
+
+        # 5. Parse response
+        parsed = self.parse_unified_response(response)
+
+        # 6. Log LLM interaction for playground.html AUTO mode
+        self.llm_logger.log_interaction(
+            interaction_type="code_generation",
+            prompt=prompt,
+            response=response,
+            duration=duration,
+            model_info={
+                "model": self.model,
+                "tokens": {
+                    "prompt": 0,
+                    "completion": 0
+                }
+            }
+        )
+
+        print(f"\n📊 VLM Decision: {parsed['task_decision']}")
+
+        # 6. Handle task decomposition
+        if parsed['task_decision'] in ['CREATE_NEW', 'DECOMPOSE']:
+            if parsed.get('new_subtask'):
+                # Create new subtask (replaces current)
+                new_subtask = self.create_next_subtask(
+                    main_milestone,
+                    parsed['new_subtask'],
+                    state
+                )
+                current_subtask = new_subtask
+            else:
+                print("⚠️ No subtask data provided despite CREATE_NEW/DECOMPOSE decision")
+
+        # 7. Handle condition refinement
+        if parsed.get('refined_precondition') or parsed.get('refined_success'):
+            if current_subtask:
+                current_subtask = self.update_subtask_conditions(current_subtask, parsed)
+
+        # 8. Save code to current subtask
+        if current_subtask and parsed.get('code'):
+            current_subtask['code'] = parsed['code']
+
+        # 9. Save subtask state
+        if current_subtask:
+            self.subtask_manager.save_state(main_milestone['id'])
+
+        # 10. Execute code
+        try:
+            action = self._execute_code(parsed['code'], state)
+            print(f"✅ Action: {action}")
+            return action
+        except Exception as e:
+            print(f"❌ Code execution failed: {e}")
+            return 'b'  # Wait/back on error
+
+    def _call_vlm(self, frame, prompt):
+        """
+        Call VLM with frame and prompt
+
+        Args:
+            frame: PIL Image
+            prompt: Prompt string
+
+        Returns:
+            VLM response string
+        """
+        # Encode frame to base64
+        if frame:
+            buffer = io.BytesIO()
+            frame.save(buffer, format='PNG')
+            frame_b64 = base64.b64encode(buffer.getvalue()).decode()
+        else:
+            frame_b64 = ""
+
+        # Call OpenAI
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt}
+                ]
+            }
+        ]
+
+        if frame_b64:
+            messages[0]["content"].insert(0, {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{frame_b64}"}
+            })
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            max_completion_tokens=4096
+        )
+
+        return response.choices[0].message.content
+
+    def _step_with_subtasks(self, game_state):
+        """
+        Step function using subtask-based execution
+
+        Args:
+            game_state: Game state dict
+
+        Returns:
+            {'action': action_string}
+        """
+        try:
+            # Get current milestone
+            milestones = self._get_augmented_milestones(game_state)
+            next_milestone_id = self.milestone_manager.get_next_milestone(milestones)
+
+            if not next_milestone_id:
+                print("🎉 All milestones completed!")
+                return {'action': 'b'}  # Wait
+
+            milestone_info = self.milestone_manager.get_milestone_info(next_milestone_id)
+
+            # Try to load saved subtask state for this milestone
+            self.subtask_manager.load_state(next_milestone_id)
+
+            # Process with subtasks
+            action = self.process_milestone_with_subtasks(
+                frame=game_state.get('frame'),
+                state=game_state,
+                main_milestone=milestone_info
+            )
+
+            # Record action
+            self.stuck_detector.record_action(action)
+            self._last_action = action
+
+            # Check custom milestones
+            self._check_custom_milestones(game_state, action)
+
+            return {'action': action}
+
+        except Exception as e:
+            print(f"❌ Error in subtask step: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'action': 'b'}  # Wait on error

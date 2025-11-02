@@ -609,18 +609,23 @@ state = {
         'location': str,              # Map location name
         'current_map': str,           # Current map name
         'player_coords': {'x': int, 'y': int},  # Player coordinates
-        'grid': [                     # 15x15 symbol grid centered on player
-            ['#', '.', 'P', 'D', ...],  # Symbols: . (walkable), # (blocked), P (player),
-            ['.', '.', '#', ...],       #          D (door), S (stairs), W (water), etc.
-            ...
-        ],
-        'grid_origin': {'x': int, 'y': int},  # Top-left corner absolute coords
-        'objects': [                  # Special objects in the grid
+        'ascii_map': [str, str, ...], # List of strings - each row is a string (stitched/global map)
+        'legend': [str, str, ...],    # List of strings - map legend explaining symbols
+        'player_position': {          # Player position with facing direction
+            'x': int,                 #   Absolute X coordinate
+            'y': int,                 #   Absolute Y coordinate
+            'facing': str             #   Direction: "North", "South", "East", "West"
+        },
+        'explored_bounds': {          # Bounds of explored area
+            'min_x': int, 'max_x': int,
+            'min_y': int, 'max_y': int
+        },
+        'warps': [                    # Warp/door information (optional)
             {
-                'type': str,          # 'door', 'stairs', 'computer', 'clock', etc.
-                'name': str,          # Human-readable name
-                'x': int, 'y': int,   # Absolute coordinates
-                'symbol': str         # Symbol on grid
+                'position': {'x': int, 'y': int},  # Warp location (absolute coords)
+                'leads_to': str,      # Destination location name
+                'type': str,          # 'door', 'stairs', 'route_transition'
+                'direction': str      # 'north', 'south', 'up', 'down'
             }
         ]
     },
@@ -635,13 +640,18 @@ state = {
 ```
 
 Notes on state structure:
-- The 'grid' field contains a 15x15 grid of single-character symbols representing the map
-- Grid coordinates: grid[0][0] is at absolute position 'grid_origin', player is at center (grid[7][7])
-- map.grid shows basic terrain (walls '#', walkable '.', doors 'D', stairs 'S') but is incomplete
-- NPCs and some obstacles are NOT shown in map.grid - you MUST check the visual screenshot
-- Navigation strategy: Use visual image first for obstacles/NPCs, then map.grid for general layout
+- The 'ascii_map' field is a list of strings (each row is a string) showing the current map with WORLD coordinates
+- Map shows the explored_bounds rectangle for the current location (not just 15x15 view)
+- Coordinates are WORLD coordinates: the numbers shown in the map header and row labels are world coordinates relative to the game's internal coordinate system
+- Example: If you see " 1" in the row label and "7" in the column header, that tile is at world (7, 1)
+- Use the 'legend' field (list of strings) to understand what each symbol means (P=Player, .=walkable, #=wall, D=door, S=stairs, etc.)
+- To display the map, join the list: '\n'.join(state['map']['ascii_map'])
+- Player position is marked with 'P' and coordinates are in 'player_position' (world coords)
+- 'warps' list shows doors/stairs with their destinations and world coordinates
+- All coordinates (player_position, warps, map headers) use the same world coordinate system
+- NPCs and some obstacles may NOT be shown on the map - MUST check the visual screenshot
+- Navigation strategy: Use visual image for NPCs/obstacles, ascii_map for spatial planning
 - 'battle_info' is only available during battles
-- 'objects' list helps identify interactive elements like doors, stairs, NPCs
 - game_state and dialog_text can be unreliable - trust the visual image when detecting dialogue
 - You can use action sequences (maximum 2 actions) like ['up', 'a'] to handle interactions and movements together
 """
@@ -779,10 +789,93 @@ class CodeAgentPromptBuilder:
         """
         현재 게임 상태 섹션
 
-        SimpleAgent의 build_game_state_section()과 동일한 포맷 사용
+        ASCII map을 시각적으로 표시하고 나머지는 JSON으로 표시
         """
-        return f"""CURRENT GAME STATE (text data):
+        import json
+
+        # JSON 파싱
+        try:
+            state_dict = json.loads(formatted_state)
+        except (json.JSONDecodeError, TypeError):
+            # Fallback: 파싱 실패시 그대로 반환
+            return f"""CURRENT GAME STATE (text data):
 {formatted_state}"""
+
+        sections = []
+        sections.append("CURRENT GAME STATE:")
+        sections.append("")
+
+        # Map visualization (if available)
+        if 'map' in state_dict and 'ascii_map' in state_dict['map']:
+            map_data = state_dict['map']
+
+            sections.append("=" * 60)
+            sections.append("MAP VISUALIZATION")
+            sections.append("=" * 60)
+            sections.append(f"Location: {map_data.get('location', 'Unknown')}")
+
+            # Player position
+            if 'player_position' in map_data:
+                pos = map_data['player_position']
+                sections.append(f"Player Position: ({pos['x']}, {pos['y']}) facing {pos['facing']}")
+
+            # Explored bounds
+            if 'explored_bounds' in map_data:
+                bounds = map_data['explored_bounds']
+                sections.append(f"Explored Area: ({bounds.get('min_x')}, {bounds.get('min_y')}) to ({bounds.get('max_x')}, {bounds.get('max_y')})")
+
+            sections.append("")
+
+            # ASCII map (list of strings)
+            if isinstance(map_data['ascii_map'], list):
+                for row in map_data['ascii_map']:
+                    sections.append(row)
+            else:
+                # Fallback for string format
+                sections.append(str(map_data['ascii_map']))
+
+            sections.append("")
+
+            # Legend (list of strings)
+            if 'legend' in map_data:
+                if isinstance(map_data['legend'], list):
+                    for line in map_data['legend']:
+                        sections.append(line)
+                else:
+                    # Fallback for string format
+                    sections.append(str(map_data['legend']))
+                sections.append("")
+
+            # Warps
+            if 'warps' in map_data and map_data['warps']:
+                sections.append("Available Warps:")
+                for warp in map_data['warps']:
+                    pos = warp['position']
+                    sections.append(
+                        f"  • ({pos['x']}, {pos['y']}): {warp['type']} → "
+                        f"{warp['leads_to']} ({warp['direction']})"
+                    )
+                sections.append("")
+
+            sections.append("=" * 60)
+            sections.append("")
+
+            # Remove map visualization fields from JSON (이미 표시했으므로)
+            # But keep the basic map info
+            cleaned_map = {
+                'location': map_data.get('location'),
+                'current_map': map_data.get('current_map'),
+                'player_coords': map_data.get('player_coords'),
+                'player_position': map_data.get('player_position'),
+                'explored_bounds': map_data.get('explored_bounds')
+            }
+            state_dict['map'] = cleaned_map
+
+        # Rest of state as JSON
+        sections.append("GAME STATE DATA (JSON):")
+        sections.append(json.dumps(state_dict, indent=2))
+
+        return "\n".join(sections)
 
     def build_stuck_warning_section(self, stuck_warning: str) -> str:
         """
@@ -909,3 +1002,225 @@ Goal: {milestone_desc}"""
     def build_example_code_section(self) -> str:
         """예시 코드 섹션 (CodeAgent 전용)"""
         return self.config.example_code_template
+
+    # ========================================
+    # Subtask-specific Methods
+    # ========================================
+
+    def build_subtask_prompt(
+        self,
+        main_milestone: Dict[str, Any],
+        current_subtask: Optional[Dict[str, Any]],
+        situation: str,
+        state: Dict[str, Any],
+        milestone_manager: Any = None
+    ) -> str:
+        """
+        Build unified prompt for subtask-based code generation
+
+        Args:
+            main_milestone: Main milestone dict
+            current_subtask: Current subtask dict (or None)
+            situation: Situation string (SUCCESS_ACHIEVED, PRECONDITION_FAILED, STUCK, NORMAL)
+            state: Current game state
+            milestone_manager: MilestoneManager instance for formatting milestones
+
+        Returns:
+            str: Complete prompt for VLM
+        """
+        from utils.state_formatter import format_state_for_llm_json
+
+        # Get situation-specific instructions
+        situation_instructions = {
+            "NORMAL": """
+You are starting work on this milestone. Decide if you need to break it into subtasks.""",
+
+            "SUCCESS_ACHIEVED": """
+✅ CURRENT SUBTASK COMPLETED!
+The success condition was met. Now decide what to do next:
+- Create the next subtask if there's more work
+- Or mark milestone as complete if done""",
+
+            "PRECONDITION_FAILED": """
+⚠️ PRECONDITION FAILED
+The current subtask's precondition is no longer valid.
+This means:
+- The precondition might be wrong → refine it
+- Or you need a different subtask to get back on track""",
+
+            "STUCK": """
+🔴 AGENT IS STUCK
+Same action/location repeated. Current approach is NOT working.
+You can:
+- Modify the run code
+- Or break down into smaller subtasks
+- Or modify the current subtask if it's unnecessary"""
+        }
+
+        # Format state
+        formatted_state = format_state_for_llm_json(state)
+
+        # Get recent milestones for context
+        recent_milestones_text = self._format_recent_milestones(state, milestone_manager)
+
+        # CLOCK_SET example (only show for NORMAL situation)
+        clock_example = ""
+        if situation == "NORMAL":
+            clock_example = """
+
+EXAMPLE: Setting clock in bedroom (CLOCK_SET milestone)
+
+Milestone: "Set the clock in player's bedroom"
+
+This involves several steps:
+1. Enter house (if outside) → Location changes to "HOUSE 1F"
+2. Go upstairs → Location changes to "HOUSE 2F"
+3. Move to clock position (5,1) → Navigate to specific coordinates
+4. Interact with clock → Face up and press A
+5. Exit house → Location changes back to town
+
+Each of these could be a subtask:
+
+First subtask example:
+Decision: CREATE_NEW
+Description: Enter player's house from town
+Precondition: state['player']['location'].find('LITTLEROOT TOWN') >= 0
+Success Condition: state['player']['location'].find('HOUSE') >= 0
+
+Second subtask example:
+Decision: CREATE_NEW
+Description: Navigate to 2nd floor bedroom
+Precondition: state['player']['location'].find('1F') >= 0
+Success Condition: state['player']['location'].find('2F') >= 0
+
+Third subtask example:
+Decision: CREATE_NEW
+Description: Move to clock and interact (at position 5,1, then press up+A)
+Precondition: state['player']['location'].find('2F') >= 0
+Success Condition: (state['player']['position']['x'], state['player']['position']['y']) == (5, 1) and action == ['up', 'a']
+
+NOTE: Both 'state' and 'action' variables are available in conditions.
+- state: Current game state dict
+- action: Last action taken (can be single string like 'up' or list like ['up', 'a'])
+- For multi-action sequences, code should return a list (e.g., return ['up', 'a'])"""
+
+        # Build complete prompt
+        prompt = f"""You are working on milestone: [{main_milestone['description']}]
+
+CURRENT SUBTASK:
+{current_subtask['description'] if current_subtask else 'None (just starting)'}
+- Precondition: {current_subtask.get('precondition', 'N/A') if current_subtask else 'N/A'}
+- Success Condition: {current_subtask.get('success_condition', 'N/A') if current_subtask else 'N/A'}
+
+SITUATION: {situation}
+{situation_instructions.get(situation, "")}
+{clock_example}
+
+CURRENT GAME STATE:
+{formatted_state}
+
+{recent_milestones_text}
+
+---
+
+ANALYSIS:
+[Analyze the situation. What's the current state? What needs to happen?]
+
+TASK_DECOMPOSITION:
+[What should you do with the current subtask?
+
+Options:
+1. KEEP_CURRENT - Continue with current subtask as-is
+2. CREATE_NEW - Current task is done/invalid, create next subtask
+3. DECOMPOSE - Current task is too complex, break it into smaller subtask
+
+Decision: [KEEP_CURRENT | CREATE_NEW | DECOMPOSE]
+
+If CREATE_NEW or DECOMPOSE, define the next immediate subtask:
+Description: [What to do]
+Precondition: [When to start - Python expression using 'state']
+Success Condition: [When done - Python expression using 'state']
+
+Example:
+Decision: CREATE_NEW
+Description: Navigate to 2nd floor
+Precondition: state['player']['location'].find('1F') >= 0
+Success Condition: state['player']['location'].find('2F') >= 0
+]
+
+CONDITION_REFINEMENT:
+[Are the current precondition/success_condition correct?
+
+If they need changes, provide corrected versions:
+PRECONDITION: [corrected expression]
+SUCCESS_CONDITION: [corrected expression]
+
+Otherwise: NO_CHANGE
+]
+
+CODE:
+[Implement policy for current subtask]
+
+```python
+def run(state):
+    \"\"\"
+    {current_subtask['description'] if current_subtask else main_milestone['description']}
+    \"\"\"
+    # Implementation
+    return action  # Single action string like 'up', 'down', 'left', 'right', 'a', 'b'
+```
+
+IMPORTANT:
+- Each subtask should represent ONE major state change (usually a map/location change)
+- Keep subtasks simple and achievable
+- Use state['player']['location'] to check current location
+- Use state['player']['position']['x'] and ['y'] for coordinates
+"""
+
+        return prompt
+
+    def _format_recent_milestones(
+        self,
+        state: Dict[str, Any],
+        milestone_manager: Any = None
+    ) -> str:
+        """
+        Format recent 3 successful subtasks (custom milestones) for context
+
+        Args:
+            state: Game state with milestones
+            milestone_manager: MilestoneManager instance (optional)
+
+        Returns:
+            Formatted string of recent subtasks
+        """
+        milestones = state.get('milestones', {})
+        if not milestones:
+            return "RECENT SUCCESSFUL SUBTASKS: None yet"
+
+        # Get completed milestones (includes custom milestones = subtasks)
+        completed = [
+            (mid, mdata)
+            for mid, mdata in milestones.items()
+            if isinstance(mdata, dict) and mdata.get('completed', False)
+        ]
+
+        # Sort by completion order (if timestamp available)
+        completed.sort(key=lambda x: x[1].get('timestamp', 0), reverse=True)
+
+        # Take last 3
+        recent = completed[:3]
+
+        if not recent:
+            return "RECENT SUCCESSFUL SUBTASKS: None yet"
+
+        lines = ["RECENT SUCCESSFUL SUBTASKS (for context):"]
+        for mid, mdata in recent:
+            if milestone_manager:
+                milestone_info = milestone_manager.get_milestone_info(mid)
+                lines.append(f"  ✓ {milestone_info['description']}")
+            else:
+                # Fallback without milestone_manager
+                lines.append(f"  ✓ {mid}")
+
+        return "\n".join(lines)

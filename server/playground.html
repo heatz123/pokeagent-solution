@@ -60,6 +60,7 @@
             border: 1px solid #33ff33;
             padding: 15px;
             box-sizing: border-box;
+            gap: 10px;
         }
 
         .section-title {
@@ -78,12 +79,65 @@
             background-color: #000000;
             border: 1px solid #33ff33;
             box-shadow: 0 0 10px #33ff33;
+            min-height: 0;
         }
 
         .frame {
             max-width: 100%;
             max-height: 100%;
             image-rendering: pixelated;
+        }
+
+        .subtask-info-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #0a0a0a;
+            border: 1px solid #ffff33;
+            padding: 10px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            min-height: 0;
+        }
+
+        .subtask-info-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .subtask-info-container::-webkit-scrollbar-track {
+            background: #0a0a0a;
+        }
+
+        .subtask-info-container::-webkit-scrollbar-thumb {
+            background: #ffff33;
+        }
+
+        .subtask-info-row {
+            margin-bottom: 8px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .subtask-info-label {
+            color: #ffff33;
+            font-weight: bold;
+        }
+
+        .subtask-info-value {
+            color: #33ff33;
+            margin-left: 5px;
+        }
+
+        .subtask-condition {
+            color: #999;
+            font-size: 12px;
+            margin-left: 15px;
+            word-wrap: break-word;
+        }
+
+        .no-subtask {
+            color: #666;
+            font-style: italic;
         }
 
         .code-panel {
@@ -339,6 +393,80 @@
         .response-section:not(.has-content) {
             display: none;
         }
+
+        /* Prompt view panel */
+        .prompt-view-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: #1a1a1a;
+            border: 1px solid #ffff33;
+            padding: 15px;
+            box-sizing: border-box;
+            gap: 10px;
+        }
+
+        .prompt-view-content {
+            flex: 1;
+            background-color: #0a0a0a;
+            border: 1px solid #ffff33;
+            color: #33ff33;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            padding: 15px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.5;
+        }
+
+        .prompt-view-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .prompt-view-content::-webkit-scrollbar-track {
+            background: #0a0a0a;
+        }
+
+        .prompt-view-content::-webkit-scrollbar-thumb {
+            background: #ffff33;
+        }
+
+        /* Panel header with button */
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        /* View toggle button */
+        .view-toggle-btn {
+            background-color: #0a0a0a;
+            border: 2px solid #ffff33;
+            color: #ffff33;
+            padding: 5px 15px;
+            cursor: pointer;
+            font-family: 'VT323', monospace;
+            font-size: 16px;
+            box-shadow: 0 0 10px #ffff33;
+            transition: all 0.2s;
+        }
+
+        .view-toggle-btn:hover {
+            background-color: #ffff33;
+            color: #0a0a0a;
+        }
+
+        .view-toggle-btn.active {
+            border-color: #33ff33;
+            color: #33ff33;
+            box-shadow: 0 0 10px #33ff33;
+        }
+
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -355,10 +483,18 @@
             <div class="frame-container">
                 <img id="frame" class="frame" src="" alt="Game Frame">
             </div>
+
+            <div class="section-title" style="color: #ffff33;"># SUBTASK INFO</div>
+            <div id="subtask-info" class="subtask-info-container">
+                <div class="no-subtask">Waiting for subtask data...</div>
+            </div>
         </div>
 
-        <div class="code-panel">
-            <div class="section-title"># CODE</div>
+        <div id="code-panel" class="code-panel">
+            <div class="panel-header">
+                <div class="section-title"># CODE</div>
+                <button id="view-toggle-btn" class="view-toggle-btn">VIEW PROMPT</button>
+            </div>
             <div class="mode-toggle">
                 <button id="manual-mode-btn" class="mode-btn active">MANUAL</button>
                 <button id="auto-mode-btn" class="mode-btn">AUTO</button>
@@ -396,6 +532,17 @@
                 </div>
             </div>
         </div>
+
+        <div id="prompt-panel" class="prompt-view-panel hidden">
+            <div class="panel-header">
+                <div class="section-title" style="color: #ffff33;"># PROMPT</div>
+                <button id="prompt-back-btn" class="view-toggle-btn active">BACK TO CODE</button>
+            </div>
+
+            <div id="prompt-content" class="prompt-view-content">
+                No prompt available yet. Generate code first to see the prompt.
+            </div>
+        </div>
     </div>
 
     <script>
@@ -407,6 +554,48 @@
 
         console.log(`Using server URL: ${serverUrl}`);
         console.log(`Using frame server URL: ${frameServerUrl}`);
+
+        // View toggle state and prompt storage
+        let currentView = 'code'; // 'code' or 'prompt'
+        let lastPrompt = null;
+
+        // View toggle functionality
+        const viewToggleBtn = document.getElementById('view-toggle-btn');
+        const promptBackBtn = document.getElementById('prompt-back-btn');
+
+        viewToggleBtn.addEventListener('click', showPromptView);
+        promptBackBtn.addEventListener('click', showCodeView);
+
+        function showPromptView() {
+            const codePanel = document.getElementById('code-panel');
+            const promptPanel = document.getElementById('prompt-panel');
+
+            codePanel.classList.add('hidden');
+            promptPanel.classList.remove('hidden');
+            currentView = 'prompt';
+
+            // Display prompt
+            const promptContent = document.getElementById('prompt-content');
+            if (lastPrompt) {
+                promptContent.textContent = lastPrompt;
+            } else {
+                promptContent.textContent = 'No prompt available yet. Generate code first to see the prompt.';
+            }
+        }
+
+        function showCodeView() {
+            const codePanel = document.getElementById('code-panel');
+            const promptPanel = document.getElementById('prompt-panel');
+
+            promptPanel.classList.add('hidden');
+            codePanel.classList.remove('hidden');
+            currentView = 'code';
+        }
+
+        // Save prompt for viewing
+        function savePrompt(prompt) {
+            lastPrompt = prompt;
+        }
 
         // Frame polling with robust error handling
         let isConnected = false;
@@ -643,6 +832,11 @@
 
         // Display structured response
         function displayStructuredResponse(fullResponse, prompt = null) {
+            // Save prompt for prompt viewer
+            if (prompt) {
+                savePrompt(prompt);
+            }
+
             const sections = parseStructuredResponse(fullResponse);
 
             let html = '<div class="response-sections">';
@@ -696,16 +890,6 @@
                     <div class="response-section highlight has-content">
                         <div class="response-section-header">${icon} ${title}</div>
                         <pre class="response-section-content">${escapeHtml(actionContent)}</pre>
-                    </div>
-                `;
-            }
-
-            // PROMPT (if provided)
-            if (prompt) {
-                html += `
-                    <div class="response-section has-content">
-                        <div class="response-section-header">📝 PROMPT</div>
-                        <pre class="response-section-content">${escapeHtml(prompt)}</pre>
                     </div>
                 `;
             }
@@ -857,6 +1041,70 @@
 
         // Initial load
         updateMilestones();
+
+        // Subtask info update function
+        async function updateSubtaskInfo() {
+            try {
+                const response = await fetch(`${serverUrl}/subtask`);
+                const data = await response.json();
+
+                const display = document.getElementById('subtask-info');
+
+                if (data.subtask) {
+                    const s = data.subtask;
+                    let html = '';
+
+                    // Milestone
+                    html += `<div class="subtask-info-row">
+                        <span class="subtask-info-label">🎯 MILESTONE:</span>
+                        <span class="subtask-info-value">${escapeHtml(s.parent_milestone_id || 'N/A')}</span>
+                    </div>`;
+
+                    // Subtask
+                    html += `<div class="subtask-info-row">
+                        <span class="subtask-info-label">📍 SUBTASK:</span>
+                        <span class="subtask-info-value">${escapeHtml(s.description || 'N/A')}</span>
+                    </div>`;
+
+                    // Precondition
+                    if (s.precondition) {
+                        html += `<div class="subtask-info-row">
+                            <span class="subtask-info-label">✓ PRECONDITION:</span>
+                            <div class="subtask-condition">${escapeHtml(s.precondition)}</div>
+                        </div>`;
+                    }
+
+                    // Success Condition
+                    if (s.success_condition) {
+                        html += `<div class="subtask-info-row">
+                            <span class="subtask-info-label">🎯 SUCCESS:</span>
+                            <div class="subtask-condition">${escapeHtml(s.success_condition)}</div>
+                        </div>`;
+                    }
+
+                    // Timestamp
+                    if (s.created_at) {
+                        html += `<div class="subtask-info-row">
+                            <span class="subtask-info-label">⏱️ CREATED:</span>
+                            <span class="subtask-info-value">${escapeHtml(s.created_at)}</span>
+                        </div>`;
+                    }
+
+                    display.innerHTML = html;
+                } else {
+                    display.innerHTML = '<div class="no-subtask">No active subtask (USE_SUBTASKS=false or not started)</div>';
+                }
+            } catch (error) {
+                console.error('Subtask info error:', error);
+                document.getElementById('subtask-info').innerHTML = '<div class="no-subtask">Error loading subtask info</div>';
+            }
+        }
+
+        // Poll subtask info every 1 second
+        setInterval(updateSubtaskInfo, 1000);
+
+        // Initial load
+        updateSubtaskInfo();
     </script>
 </body>
 </html>
