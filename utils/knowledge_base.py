@@ -147,28 +147,6 @@ class KnowledgeBase:
         """
         return [e.to_dict() for e in self.entries[-limit:]]
 
-    def to_prompt_format(self, limit: int = 20) -> str:
-        """
-        Format knowledge base for inclusion in LLM prompt
-
-        Args:
-            limit: Maximum number of recent entries to include
-
-        Returns:
-            Formatted string for prompt
-        """
-        if not self.entries:
-            return "Knowledge Base is empty. You can add learnings with ADD_KNOWLEDGE: <sentence>"
-
-        recent = self.entries[-limit:]
-        lines = ["KNOWLEDGE BASE (learned facts):"]
-        for i, entry in enumerate(recent, 1):
-            # Shorten milestone name for readability
-            milestone_short = entry.created_milestone.replace('story_', '')
-            lines.append(f"{i}. {entry.content} [Step {entry.created_step}, {milestone_short}]")
-
-        return "\n".join(lines)
-
     def clear(self):
         """Clear all knowledge entries (for debugging)"""
         self.entries = []
