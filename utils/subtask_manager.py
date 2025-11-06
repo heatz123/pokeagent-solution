@@ -35,6 +35,7 @@ class SubtaskManager:
         """
         self.milestone_manager = milestone_manager
         self.current_subtask = None  # Only one active subtask
+        self.completed_subtasks = []  # Track completed subtasks with timestamps
 
         # Ensure cache directory exists
         self.cache_dir = ".pokeagent_cache/subtasks"
@@ -54,6 +55,19 @@ class SubtaskManager:
         """
         return self.current_subtask
 
+    def get_recent_completed_subtasks(self, count: int = 3) -> list:
+        """
+        Get recent completed subtasks
+
+        Args:
+            count: Number of recent subtasks to return
+
+        Returns:
+            List of completed subtask dicts (most recent first)
+        """
+        # Return last N subtasks (most recent first)
+        return self.completed_subtasks[-count:] if self.completed_subtasks else []
+
     def set_current_subtask(self, subtask: Dict[str, Any]):
         """
         Set the current active subtask
@@ -70,27 +84,41 @@ class SubtaskManager:
         """
         self.current_subtask = subtask
 
-        # Register as custom milestone if success_condition exists
-        if subtask and subtask.get('success_condition'):
-            self._register_as_custom_milestone(subtask)
+        # NOTE: We don't register subtasks as custom milestones to prevent nesting issues.
+        # Subtask completion is tracked via determine_situation() in CodeAgent.
 
         # Save to file for web display
         self._save_current_subtask_to_file()
 
         logger.info(f"Set current subtask: {subtask['description'] if subtask else 'None'}")
 
-    def clear_current_subtask(self):
+    def clear_current_subtask(self, completed=True):
         """
         Clear the current subtask (completed or skipped)
+
+        Args:
+            completed: If True, adds to completed_subtasks history
         """
         if self.current_subtask:
             logger.info(f"Clearing subtask: {self.current_subtask['description']}")
+
+            # Record completed subtask with timestamp
+            if completed:
+                self.completed_subtasks.append({
+                    'id': self.current_subtask['id'],
+                    'description': self.current_subtask['description'],
+                    'parent_milestone_id': self.current_subtask.get('parent_milestone_id'),
+                    'timestamp': datetime.now().timestamp(),
+                    'type': 'subtask'  # For distinguishing from milestones
+                })
+                logger.debug(f"Added to completed subtasks: {self.current_subtask['description']}")
+
         self.current_subtask = None
 
         # Clear file for web display
         self._save_current_subtask_to_file()
 
-    def evaluate_condition(self, condition_text: str, state: Dict[str, Any], prev_action: str = None) -> bool:
+    def evaluate_condition(self, condition_text: str, state: Dict[str, Any], prev_action: str = None):
         """
         Evaluate a condition expression safely
 
@@ -100,14 +128,16 @@ class SubtaskManager:
             action: Last action taken (optional)
 
         Returns:
-            True if condition is met, False otherwise
+            tuple: (success: bool, result: bool)
+                - success: True if evaluation succeeded, False if exception occurred
+                - result: True if condition is met, False otherwise
 
         Note:
             Uses restricted eval with 'state' and 'action' variables available.
             Helper functions can be added later if needed.
         """
         if not condition_text or not condition_text.strip():
-            return False
+            return (True, False)  # Empty condition = successfully evaluated as False
 
         try:
             # Restricted namespace - 'state' and 'action' variables available
@@ -118,14 +148,14 @@ class SubtaskManager:
             }
 
             result = eval(condition_text, namespace)
-            return bool(result)
+            return (True, bool(result))  # Success, with result
 
         except Exception as e:
             logger.warning(f"Condition evaluation failed: {e}")
             logger.debug(f"  Condition: {condition_text}")
             logger.debug(f"  State keys: {list(state.keys()) if state else 'None'}")
             logger.debug(f"  Prev action: {prev_action}")
-            return False
+            return (False, False)  # Evaluation failed
 
     def save_state(self, milestone_id: str):
         """
@@ -168,9 +198,7 @@ class SubtaskManager:
             logger.info(f"Loaded subtask state from {filepath}")
             logger.info(f"  Subtask: {self.current_subtask.get('description', 'Unknown')}")
 
-            # Re-register as custom milestone
-            if self.current_subtask and self.current_subtask.get('success_condition'):
-                self._register_as_custom_milestone(self.current_subtask)
+            # NOTE: We don't re-register as custom milestone to prevent nesting issues.
 
             return True
 

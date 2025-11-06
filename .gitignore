@@ -189,3 +189,23 @@ cython_debug/
 
 *.mp4
 .pokeagent_cache/*
+.pokeagent_cache_backup_*/
+.pokeagent_cache_noskill*/
+.pokeagent_cache_skill*/
+.pokeagent_cache_toremove/
+
+# Output files
+client*.out
+nohup.out
+
+# Development notes (temporary)
+MAPSTITCHER_ARCHITECTURE.md
+PLAYGROUND_SUBTASK_PLAN.md
+PROMPT_COMPARISON.md
+PROMPT_REFACTOR_PLAN.md
+SUBTASK_GUIDE.md
+WORLD_COORDINATE_UPDATE.md
+
+# Temporary test files
+test_*.py
+start_all.sh

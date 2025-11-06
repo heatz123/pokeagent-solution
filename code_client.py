@@ -23,6 +23,9 @@ def main():
     parser = argparse.ArgumentParser(description="Pokemon Code Agent Client")
     parser.add_argument("--port", type=int, default=8000, help="Server port")
     parser.add_argument("--delay", type=float, default=0.5, help="Delay between steps (seconds)")
+    parser.add_argument("--model", type=str, default="gpt-5",
+                        choices=["gpt-5", "claude-sonnet-4-5-20250929"],
+                        help="Model to use (gpt-5 or claude-sonnet-4-5-20250929)")
     args = parser.parse_args()
 
     server_url = f"http://localhost:{args.port}"
@@ -31,13 +34,14 @@ def main():
     print("🤖 Pokemon Code Agent")
     print("=" * 60)
     print(f"📡 Server: {server_url}")
+    print(f"🤖 Model: {args.model}")
     print(f"⏱️  Delay: {args.delay}s")
     print()
 
     # Initialize agent
     try:
-        agent = CodeAgent()
-        print("✅ CodeAgent initialized")
+        agent = CodeAgent(model=args.model)
+        print(f"✅ CodeAgent initialized with {args.model}")
     except Exception as e:
         print(f"❌ Failed to initialize agent: {e}")
         return 1
