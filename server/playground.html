@@ -53,7 +53,8 @@
         }
 
         .screen-panel {
-            flex: 1;
+            flex: 1 1 50%;
+            max-width: 50%;
             display: flex;
             flex-direction: column;
             background-color: #1a1a1a;
@@ -141,7 +142,8 @@
         }
 
         .code-panel {
-            flex: 1;
+            flex: 1 1 50%;
+            max-width: 50%;
             display: flex;
             flex-direction: column;
             background-color: #1a1a1a;
@@ -396,7 +398,8 @@
 
         /* Prompt view panel */
         .prompt-view-panel {
-            flex: 1;
+            flex: 1 1 50%;
+            max-width: 50%;
             display: flex;
             flex-direction: column;
             background-color: #1a1a1a;
@@ -787,7 +790,10 @@
                 plan: '',
                 reasoning: '',
                 action: '',
-                code: ''
+                code: '',
+                // NEW: Subtask-specific sections
+                task_decomposition: '',
+                condition_refinement: ''
             };
 
             const lines = text.split('\n');
@@ -820,6 +826,14 @@
                     if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
                     currentSection = 'code';
                     currentContent = [];
+                } else if (trimmed.startsWith('TASK_DECOMPOSITION:')) {
+                    if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
+                    currentSection = 'task_decomposition';
+                    currentContent = [];
+                } else if (trimmed.startsWith('CONDITION_REFINEMENT:')) {
+                    if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
+                    currentSection = 'condition_refinement';
+                    currentContent = [];
                 } else if (currentSection) {
                     currentContent.push(line);
                 }
@@ -828,6 +842,72 @@
             if (currentSection) sections[currentSection] = currentContent.join('\n').trim();
 
             return sections;
+        }
+
+        // Parse TASK_DECOMPOSITION section into structured data
+        function parseTaskDecomposition(text) {
+            const result = {
+                decision: '',      // KEEP_CURRENT, CREATE_NEW, DECOMPOSE
+                description: '',   // New subtask description
+                precondition: '',  // New subtask precondition
+                success: ''        // New subtask success condition
+            };
+
+            // Extract Decision
+            const decisionMatch = text.match(/Decision:\s*(KEEP_CURRENT|CREATE_NEW|DECOMPOSE)/i);
+            if (decisionMatch) {
+                result.decision = decisionMatch[1].toUpperCase();
+            }
+
+            // Extract Description (if CREATE_NEW or DECOMPOSE)
+            const descMatch = text.match(/Description:\s*([^\n]+)/i);
+            if (descMatch) {
+                result.description = descMatch[1].trim();
+            }
+
+            // Extract Precondition
+            const preMatch = text.match(/Precondition:\s*([^\n]+)/i);
+            if (preMatch) {
+                result.precondition = preMatch[1].trim();
+            }
+
+            // Extract Success Condition
+            const succMatch = text.match(/Success Condition:\s*([^\n]+)/i);
+            if (succMatch) {
+                result.success = succMatch[1].trim();
+            }
+
+            return result;
+        }
+
+        // Parse CONDITION_REFINEMENT section
+        function parseConditionRefinement(text) {
+            const result = {
+                has_changes: false,
+                precondition: '',
+                success: ''
+            };
+
+            // Check if NO_CHANGE
+            if (text.toUpperCase().includes('NO_CHANGE')) {
+                return result;
+            }
+
+            // Extract refined PRECONDITION
+            const preMatch = text.match(/PRECONDITION:\s*([^\n]+)/i);
+            if (preMatch) {
+                result.precondition = preMatch[1].trim();
+                result.has_changes = true;
+            }
+
+            // Extract refined SUCCESS_CONDITION
+            const succMatch = text.match(/SUCCESS_CONDITION:\s*([^\n]+)/i);
+            if (succMatch) {
+                result.success = succMatch[1].trim();
+                result.has_changes = true;
+            }
+
+            return result;
         }
 
         // Display structured response
@@ -851,7 +931,70 @@
                 `;
             }
 
-            // OBJECTIVES
+            // TASK_DECOMPOSITION (subtask mode)
+            if (sections.task_decomposition) {
+                const taskDecomp = parseTaskDecomposition(sections.task_decomposition);
+
+                let taskHtml = '<div class="response-section has-content" style="border-color: #ffff33;">';
+                taskHtml += '<div class="response-section-header" style="color: #ffff33; border-bottom-color: #ffff33;">📦 TASK DECOMPOSITION</div>';
+                taskHtml += '<div class="response-section-content">';
+
+                // Decision
+                let decisionIcon = '⏸️';
+                if (taskDecomp.decision === 'CREATE_NEW') decisionIcon = '➕';
+                else if (taskDecomp.decision === 'DECOMPOSE') decisionIcon = '🔀';
+
+                taskHtml += `<span style="color: #ffff33; font-weight: bold;">${decisionIcon} Decision: ${taskDecomp.decision}</span>\n\n`;
+
+                // New subtask details (if CREATE_NEW or DECOMPOSE)
+                if (taskDecomp.decision !== 'KEEP_CURRENT' && (taskDecomp.description || taskDecomp.precondition || taskDecomp.success)) {
+                    if (taskDecomp.description) {
+                        taskHtml += `<span style="color: #33ff33;">📝 Description:</span>\n${escapeHtml(taskDecomp.description)}\n\n`;
+                    }
+                    if (taskDecomp.precondition) {
+                        taskHtml += `<span style="color: #33ff33;">✓ Precondition:</span>\n${escapeHtml(taskDecomp.precondition)}\n\n`;
+                    }
+                    if (taskDecomp.success) {
+                        taskHtml += `<span style="color: #33ff33;">🎯 Success:</span>\n${escapeHtml(taskDecomp.success)}`;
+                    }
+                } else if (taskDecomp.decision === 'KEEP_CURRENT') {
+                    taskHtml += '<span style="color: #999;">Keeping current subtask unchanged.</span>';
+                }
+
+                taskHtml += '</div></div>';
+                html += taskHtml;
+            }
+
+            // CONDITION_REFINEMENT (subtask mode)
+            if (sections.condition_refinement) {
+                const condRefine = parseConditionRefinement(sections.condition_refinement);
+
+                if (condRefine.has_changes) {
+                    let refineHtml = '<div class="response-section has-content" style="border-color: #ff9933;">';
+                    refineHtml += '<div class="response-section-header" style="color: #ff9933; border-bottom-color: #ff9933;">🔧 CONDITION REFINEMENT</div>';
+                    refineHtml += '<div class="response-section-content">';
+
+                    if (condRefine.precondition) {
+                        refineHtml += `<span style="color: #ffff33;">✓ PRECONDITION (refined):</span>\n${escapeHtml(condRefine.precondition)}\n\n`;
+                    }
+                    if (condRefine.success) {
+                        refineHtml += `<span style="color: #ffff33;">🎯 SUCCESS_CONDITION (refined):</span>\n${escapeHtml(condRefine.success)}`;
+                    }
+
+                    refineHtml += '</div></div>';
+                    html += refineHtml;
+                } else {
+                    // Show NO_CHANGE status
+                    html += `
+                        <div class="response-section has-content" style="border-color: #666;">
+                            <div class="response-section-header" style="color: #666; border-bottom-color: #666;">🔧 CONDITION REFINEMENT</div>
+                            <div class="response-section-content" style="color: #999;">NO_CHANGE - Conditions are correct</div>
+                        </div>
+                    `;
+                }
+            }
+
+            // OBJECTIVES (non-subtask mode)
             if (sections.objectives) {
                 html += `
                     <div class="response-section has-content">
@@ -861,7 +1004,7 @@
                 `;
             }
 
-            // PLAN
+            // PLAN (non-subtask mode)
             if (sections.plan) {
                 html += `
                     <div class="response-section has-content">
@@ -871,7 +1014,7 @@
                 `;
             }
 
-            // REASONING
+            // REASONING (non-subtask mode)
             if (sections.reasoning) {
                 html += `
                     <div class="response-section has-content">
@@ -881,7 +1024,7 @@
                 `;
             }
 
-            // ACTION or CODE (highlighted)
+            // ACTION or CODE (highlighted - both modes)
             const actionContent = sections.action || sections.code;
             if (actionContent) {
                 const title = sections.action ? 'ACTION' : 'CODE';

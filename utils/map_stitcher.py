@@ -198,10 +198,10 @@ class MapStitcher:
                     if tile:
                         area.map_data[grid_y][grid_x] = tile
                         
-                        # Update explored bounds for all tiles including boundaries
-                        # tile_id 1023 represents trees/walls at map edges - we want to include these
+                        # Update explored bounds (exclude tile_id 1023 - boundary padding)
+                        # tile_id 1023 represents out-of-bounds padding that shouldn't expand explored area
                         tile_id = tile[0] if tile and len(tile) > 0 else None
-                        if tile_id is not None:  # Include all tiles, even 1023
+                        if tile_id is not None and tile_id != 1023:  # Exclude boundary tiles from bounds
                             if not hasattr(area, 'explored_bounds'):
                                 area.explored_bounds = {
                                     'min_x': grid_x, 'max_x': grid_x,

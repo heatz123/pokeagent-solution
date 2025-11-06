@@ -2648,10 +2648,19 @@ class PokemonEmeraldReader:
         if tiles:
             self._update_map_stitcher(tiles, state)
         
+        # Add map bank and map number for map identification
+        # These are needed by state_formatter to match the stitched map data
+        map_bank = self._read_u8(self.addresses.MAP_BANK)
+        map_number = self._read_u8(self.addresses.MAP_NUMBER)
+        state["map"]["map_bank"] = map_bank
+        state["map"]["map_number"] = map_number
+        print(f"[MEMORY_READER] Added map_bank={map_bank}, map_number={map_number} to state (ID: 0x{(map_bank << 8) | map_number:04X})")
+        logger.debug(f"Added map identifiers to state: bank={map_bank}, number={map_number} (ID: 0x{(map_bank << 8) | map_number:04X})")
+
         # Add stitched map information to state
         stitched_info = self.get_stitched_map_info()
         state["map"]["stitched_map_info"] = stitched_info
-        
+
         # Generate map visualization directly for the LLM
         # This ensures the map is available even when passed through JSON
         if self._map_stitcher and state.get("player"):
