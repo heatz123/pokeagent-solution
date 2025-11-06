@@ -5,6 +5,16 @@
       "timestamp": 1754551143.255193,
       "first_completed": 1754551143.255193
     },
+    "PLAYER_NAME_SET": {
+      "completed": true,
+      "timestamp": 1754551143.255193,
+      "first_completed": 1754551143.255193
+    },
+    "GAME_RUNNING": {
+      "completed": true,
+      "timestamp": 1754551143.255193,
+      "first_completed": 1754551143.255193
+    },
     "EARNED_1000_POKEDOLLARS": {
       "completed": true,
       "timestamp": 1754551246.5548232,
