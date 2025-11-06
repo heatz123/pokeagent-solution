@@ -289,79 +289,56 @@ def format_map_grid(raw_tiles, player_facing="South", npcs=None, player_coords=N
 
 def format_stitched_map_simple(area, player_world_x, player_world_y):
     """
-    Format stitched map from MapArea - using world coordinates.
+    Format stitched map from game coordinate (0,0) to explored maximum.
 
-    Shows explored_bounds rectangle with world coordinates.
-    Grid (0, 0) represents world coordinate (min_x - origin_x, min_y - origin_y).
+    Shows from origin_offset (game coord 0,0) to explored_bounds.max.
+    Unexplored areas within range are shown as '?'.
 
     Args:
-        area: MapArea object with map_data and explored_bounds
-        player_world_x: Player's world X coordinate
-        player_world_y: Player's world Y coordinate
+        area: MapArea object with map_data, origin_offset, and explored_bounds
+        player_world_x: Player's game X coordinate (0-based)
+        player_world_y: Player's game Y coordinate (0-based)
 
     Returns:
-        list of str: Each row as a string (for list format)
+        list of str: Each row as a string (for list format), without coordinates
     """
     if not area or not area.map_data:
         return []
 
-    # Get explored bounds (absolute coordinates)
-    bounds = area.explored_bounds if hasattr(area, 'explored_bounds') else {}
-    min_x = bounds.get('min_x', 0)
-    min_y = bounds.get('min_y', 0)
-    max_x = bounds.get('max_x', 20)
-    max_y = bounds.get('max_y', 20)
-
-    # Get origin offset for world coordinate calculation
+    # Get origin offset (where game coordinate 0,0 is in the grid)
     offset = area.origin_offset if hasattr(area, 'origin_offset') else {'x': 0, 'y': 0}
     offset_x = offset.get('x', 0)
     offset_y = offset.get('y', 0)
 
-    # Calculate world coordinate origin
-    # Grid (0, 0) = World coordinate (min_x - offset_x, min_y - offset_y)
-    world_origin_x = min_x - offset_x
-    world_origin_y = min_y - offset_y
-
-    # Calculate grid dimensions
-    grid_width = max_x - min_x
-    grid_height = max_y - min_y
+    # Get explored bounds (실제 탐험한 범위)
+    bounds = area.explored_bounds if hasattr(area, 'explored_bounds') else {}
+    max_x = bounds.get('max_x', offset_x + 20)
+    max_y = bounds.get('max_y', offset_y + 20)
 
     lines = []
 
-    # Header: world X coordinates
-    world_x_coords = [world_origin_x + x for x in range(grid_width + 1)]
-    x_coords = " ".join(f"{x:2}" for x in world_x_coords)
-    lines.append(f"    {x_coords}")
-
-    # Each row
-    for grid_y in range(grid_height + 1):
-        # Calculate world Y coordinate for this row
-        world_y = world_origin_y + grid_y
-
+    # Loop from origin_offset (game coord 0,0) to explored_bounds.max
+    for grid_y in range(offset_y, max_y + 1):
         row_symbols = []
-        for grid_x in range(grid_width + 1):
-            # Calculate world X coordinate
-            world_x = world_origin_x + grid_x
+        for grid_x in range(offset_x, max_x + 1):
+            # Calculate game coordinates (0-based from origin)
+            game_x = grid_x - offset_x
+            game_y = grid_y - offset_y
 
-            # Convert to absolute coordinates for map_data access
-            abs_x = grid_x + min_x
-            abs_y = grid_y + min_y
-
-            # Check if this is player position (compare world coordinates)
-            if world_y == player_world_y and world_x == player_world_x:
-                row_symbols.append(" P")
-            # Direct access to map_data using absolute coordinates
-            elif (abs_y < len(area.map_data) and abs_x < len(area.map_data[0]) and
-                  area.map_data[abs_y] and area.map_data[abs_y][abs_x]):
-                tile = area.map_data[abs_y][abs_x]
+            # Check if this is player position
+            if game_y == player_world_y and game_x == player_world_x:
+                row_symbols.append("P")
+            # Check if data exists in grid
+            elif (grid_y < len(area.map_data) and grid_x < len(area.map_data[0]) and
+                  area.map_data[grid_y] and area.map_data[grid_y][grid_x]):
+                tile = area.map_data[grid_y][grid_x]
                 symbol = format_tile_to_symbol(tile)
-                row_symbols.append(f" {symbol}")
+                row_symbols.append(symbol)
             else:
-                # Unexplored or out of bounds
-                row_symbols.append(" ?")
+                # No data - unexplored area
+                row_symbols.append("?")
 
-        # Row with world Y coordinate
-        lines.append(f"{world_y:3} {''.join(row_symbols)}")
+        lines.append(''.join(row_symbols))
 
     return lines
 

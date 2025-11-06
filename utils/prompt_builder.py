@@ -508,8 +508,17 @@ Based on the current game frame and state information, think through your next m
         return """IMPORTANT: Please think step by step before writing your code. Structure your response like this:
 
 ANALYSIS:
-[Analyze what you see in the frame and current game state - what's happening? where are you? what should you be doing?
-IMPORTANT: Look carefully at the game image for objects and NPCs that might not be shown on the map. Consider both visual and text information.]
+[First, describe what you SEE directly in the visual frame:
+- What is shown on screen? (menus, dialog boxes, overworld, battle, etc.)
+- What objects or sprites are visible? (NPCs, items, doors, stairs, etc.)
+- Where is the player character positioned in the frame?
+- Are there any UI elements or text displayed?
+
+Then analyze the game state data:
+- Current location and coordinates
+- What should you be doing based on the milestone?
+
+IMPORTANT: Start with visual description first, then connect it to state data.]
 
 OBJECTIVES:
 [Review the current milestone and your progress. What is the immediate goal? What steps are needed to reach the next milestone?]
@@ -614,11 +623,6 @@ state = {
         'player_position': {          # Player position with facing direction
             'x': int,                 #   Absolute X coordinate
             'y': int,                 #   Absolute Y coordinate
-            'facing': str             #   Direction: "North", "South", "East", "West"
-        },
-        'explored_bounds': {          # Bounds of explored area
-            'min_x': int, 'max_x': int,
-            'min_y': int, 'max_y': int
         },
         'warps': [                    # Warp/door information (optional)
             {
@@ -640,10 +644,10 @@ state = {
 ```
 
 Notes on state structure:
-- The 'ascii_map' field is a list of strings (each row is a string) showing the current map with WORLD coordinates
-- Map shows the explored_bounds rectangle for the current location (not just 15x15 view)
-- Coordinates are WORLD coordinates: the numbers shown in the map header and row labels are world coordinates relative to the game's internal coordinate system
-- Example: If you see " 1" in the row label and "7" in the column header, that tile is at world (7, 1)
+- The 'ascii_map' field is a list of strings (each row is a string) showing the current map with GAME coordinates
+- Map shows from game coordinate (0,0) to explored maximum (not just 15x15 view)
+- Coordinates are GAME coordinates: 0-based coordinates starting from the origin of the current map
+- Unexplored areas within the map range are shown as '?' symbols
 - Use the 'legend' field (list of strings) to understand what each symbol means (P=Player, .=walkable, #=wall, D=door, S=stairs, etc.)
 - To display the map, join the list: '\n'.join(state['map']['ascii_map'])
 - Player position is marked with 'P' and coordinates are in 'player_position' (world coords)
@@ -681,8 +685,9 @@ class CodeAgentPromptBuilder:
         stuck_warning: str = "",
         previous_code: str = "",
         execution_error: Optional[Dict[str, Any]] = None,
-        knowledge_base: str = "",
+        knowledge_base: Any = None,
         previous_actions: Optional[List[Any]] = None,
+        previous_analyses: Optional[List[Tuple[int, str]]] = None,
         **kwargs
     ) -> str:
         """
@@ -699,7 +704,7 @@ class CodeAgentPromptBuilder:
                 - 'error': 에러 메시지
                 - 'code': 에러가 발생한 코드
                 - 'traceback': 트레이스백 (선택)
-            knowledge_base: Knowledge base 텍스트 (선택)
+            knowledge_base: KnowledgeBase instance (선택)
             previous_actions: 이전 코드가 생성한 action 리스트 (선택)
             **kwargs: 미래 확장성을 위한 추가 인자
 
@@ -731,7 +736,12 @@ class CodeAgentPromptBuilder:
 
         # 5. Knowledge Base (if available)
         if knowledge_base:
-            sections.append(knowledge_base)
+            sections.append(self.build_knowledge_base_section(knowledge_base))
+            sections.append("")
+
+        # 5.5. Previous analyses (if available)
+        if previous_analyses and len(previous_analyses) > 0:
+            sections.append(self.build_previous_analyses_section(previous_analyses))
             sections.append("")
 
         # 6. Execution error (우선순위 높음 - stuck보다 먼저)
@@ -817,12 +827,7 @@ class CodeAgentPromptBuilder:
             # Player position
             if 'player_position' in map_data:
                 pos = map_data['player_position']
-                sections.append(f"Player Position: ({pos['x']}, {pos['y']}) facing {pos['facing']}")
-
-            # Explored bounds
-            if 'explored_bounds' in map_data:
-                bounds = map_data['explored_bounds']
-                sections.append(f"Explored Area: ({bounds.get('min_x')}, {bounds.get('min_y')}) to ({bounds.get('max_x')}, {bounds.get('max_y')})")
+                sections.append(f"Player Position: ({pos['x']}, {pos['y']})")
 
             sections.append("")
 
@@ -860,18 +865,7 @@ class CodeAgentPromptBuilder:
             sections.append("=" * 60)
             sections.append("")
 
-            # Remove map visualization fields from JSON (이미 표시했으므로)
-            # But keep the basic map info
-            cleaned_map = {
-                'location': map_data.get('location'),
-                'current_map': map_data.get('current_map'),
-                'player_coords': map_data.get('player_coords'),
-                'player_position': map_data.get('player_position'),
-                'explored_bounds': map_data.get('explored_bounds')
-            }
-            state_dict['map'] = cleaned_map
-
-        # Rest of state as JSON
+        # Rest of state as JSON (filtering already done by filter_state_for_llm)
         sections.append("GAME STATE DATA (JSON):")
         sections.append(json.dumps(state_dict, indent=2))
 
@@ -916,10 +910,10 @@ IMPORTANT: The above code did NOT work. You can try a different strategy:
 
     def build_previous_actions_section(self, previous_actions: List[Any]) -> str:
         """
-        이전 코드로 생성된 action들 표시 섹션
+        이전 코드로 생성된 action들과 각 action 실행 전 position 표시 섹션
 
         Args:
-            previous_actions: 이전 코드가 생성한 action 리스트
+            previous_actions: 이전 코드가 생성한 (position, action) 튜플 리스트
 
         Returns:
             포맷팅된 action 히스토리 섹션
@@ -927,8 +921,31 @@ IMPORTANT: The above code did NOT work. You can try a different strategy:
         # Limit to last 20 actions if too many
         display_actions = previous_actions[-20:] if len(previous_actions) > 20 else previous_actions
 
-        # Format actions for display
-        actions_str = ', '.join(str(a) for a in display_actions)
+        # Format actions with positions for display
+        action_lines = []
+        for item in display_actions:
+            # Handle both new format (tuple) and old format (just action)
+            if isinstance(item, tuple) and len(item) == 2:
+                pos, action = item
+                # Format position
+                if pos and len(pos) == 2 and pos[0] is not None and pos[1] is not None:
+                    pos_str = f"({pos[0]},{pos[1]})"
+                else:
+                    pos_str = "(?,?)"
+            else:
+                # Old format (just action)
+                pos_str = "(?,?)"
+                action = item
+
+            # Format action (handle both single action and list)
+            if isinstance(action, list):
+                action_str = str(action)  # e.g., "['up', 'a']"
+            else:
+                action_str = str(action)
+
+            action_lines.append(f"{pos_str} → {action_str}")
+
+        actions_str = '\n'.join(action_lines)
 
         total_count = len(previous_actions)
         display_count = len(display_actions)
@@ -941,7 +958,7 @@ IMPORTANT: The above code did NOT work. You can try a different strategy:
         return f"""{header}
 {actions_str}
 
-⚠️ These are the actions that the previous code generated. If stuck, analyze why these actions didn't work."""
+⚠️ These are the actions that the previous code generated with the player position BEFORE each action was executed. If stuck, analyze why these actions didn't work."""
 
     def build_execution_error_section(self, execution_error: Dict[str, Any]) -> str:
         """
@@ -991,6 +1008,64 @@ IMPORTANT: The above code did NOT work. You can try a different strategy:
 ID: {milestone_id}
 Goal: {milestone_desc}"""
 
+    def build_knowledge_base_section(self, knowledge_base: Any, limit: int = 20) -> str:
+        """
+        Format knowledge base entries for LLM prompt
+
+        Args:
+            knowledge_base: KnowledgeBase instance
+            limit: Maximum number of recent entries to include
+
+        Returns:
+            Formatted string for prompt
+        """
+        if not knowledge_base or len(knowledge_base) == 0:
+            return "KNOWLEDGE BASE: Empty. You can add learnings with ADD_KNOWLEDGE: <sentence>"
+
+        # Get recent entries (returns list of KnowledgeEntry objects or dicts)
+        recent_entries = knowledge_base.get_recent(limit)
+
+        if not recent_entries:
+            return "KNOWLEDGE BASE: Empty. You can add learnings with ADD_KNOWLEDGE: <sentence>"
+
+        lines = ["KNOWLEDGE BASE (learned facts):"]
+        for i, entry in enumerate(recent_entries, 1):
+            # Handle both KnowledgeEntry objects and dicts
+            if isinstance(entry, dict):
+                content = entry['content']
+                step = entry['created_step']
+                milestone = entry['created_milestone']
+            else:
+                content = entry.content
+                step = entry.created_step
+                milestone = entry.created_milestone
+
+            # Shorten milestone name for readability
+            milestone_short = milestone.replace('story_', '')
+            lines.append(f"{i}. {content} [Step {step}]")
+
+        return "\n".join(lines)
+
+    def build_previous_analyses_section(self, analyses: List[Tuple[int, str]]) -> str:
+        """
+        Format previous ANALYSIS sections for context
+
+        Args:
+            analyses: List of (step, analysis_text) tuples
+
+        Returns:
+            Formatted string for prompt
+        """
+        # Take last 30 (should already be limited, but safe guard)
+        display = analyses[-30:]
+
+        lines = ["PREVIOUS ANALYSES (recent observations from past steps):"]
+        for step, text in display:
+            lines.append(f"\n[Step {step}]")
+            lines.append(text.strip())
+
+        return "\n".join(lines)
+
     def build_state_schema_section(self) -> str:
         """State 자료구조 설명 섹션 (CodeAgent 전용)"""
         return self.config.state_schema_template
@@ -1007,49 +1082,58 @@ Goal: {milestone_desc}"""
     # Subtask-specific Methods
     # ========================================
 
-    def build_subtask_prompt(
+    def build_subtask_info_section(
         self,
-        main_milestone: Dict[str, Any],
-        current_subtask: Optional[Dict[str, Any]],
-        situation: str,
-        state: Dict[str, Any],
-        milestone_manager: Any = None
+        current_subtask: Optional[Dict[str, Any]]
     ) -> str:
         """
-        Build unified prompt for subtask-based code generation
+        Build current subtask information section
 
         Args:
-            main_milestone: Main milestone dict
             current_subtask: Current subtask dict (or None)
-            situation: Situation string (SUCCESS_ACHIEVED, PRECONDITION_FAILED, STUCK, NORMAL)
-            state: Current game state
-            milestone_manager: MilestoneManager instance for formatting milestones
 
         Returns:
-            str: Complete prompt for VLM
+            Formatted subtask info (description, precondition, success_condition)
         """
-        from utils.state_formatter import format_state_for_llm_json
+        if not current_subtask:
+            return """CURRENT SUBTASK:
+None (just starting)
+- Precondition: N/A
+- Success Condition: N/A"""
 
-        # Get situation-specific instructions
+        return f"""CURRENT SUBTASK:
+{current_subtask['description']}
+- Precondition: {current_subtask.get('precondition', 'N/A')}
+- Success Condition: {current_subtask.get('success_condition', 'N/A')}"""
+
+    def build_situation_section(
+        self,
+        situation: str
+    ) -> str:
+        """
+        Build situation section with situation-specific instructions
+
+        Args:
+            situation: NORMAL, SUCCESS_ACHIEVED, PRECONDITION_FAILED, STUCK
+
+        Returns:
+            Formatted situation section
+        """
         situation_instructions = {
-            "NORMAL": """
-You are starting work on this milestone. Decide if you need to break it into subtasks.""",
+            "NORMAL": """You are starting work on this milestone. Decide if you need to break it into subtasks.""",
 
-            "SUCCESS_ACHIEVED": """
-✅ CURRENT SUBTASK COMPLETED!
+            "SUCCESS_ACHIEVED": """✅ CURRENT SUBTASK COMPLETED!
 The success condition was met. Now decide what to do next:
 - Create the next subtask if there's more work
 - Or mark milestone as complete if done""",
 
-            "PRECONDITION_FAILED": """
-⚠️ PRECONDITION FAILED
+            "PRECONDITION_FAILED": """⚠️ PRECONDITION FAILED
 The current subtask's precondition is no longer valid.
 This means:
 - The precondition might be wrong → refine it
 - Or you need a different subtask to get back on track""",
 
-            "STUCK": """
-🔴 AGENT IS STUCK
+            "STUCK": """🔴 AGENT IS STUCK
 Same action/location repeated. Current approach is NOT working.
 You can:
 - Modify the run code
@@ -1057,34 +1141,30 @@ You can:
 - Or modify the current subtask if it's unnecessary"""
         }
 
-        # Format state
-        formatted_state = format_state_for_llm_json(state)
+        instruction = situation_instructions.get(situation, "")
+        return f"""SITUATION: {situation}
+{instruction}"""
 
-        # Get recent milestones for context
-        recent_milestones_text = self._format_recent_milestones(state, milestone_manager)
+    def build_clock_example_section(self) -> str:
+        """
+        Build CLOCK_SET example section (always shown for subtask mode)
 
-        # CLOCK_SET example (only show for NORMAL situation)
-        clock_example = ""
-        if situation == "NORMAL":
-            clock_example = """
-
+        Returns:
+            Formatted clock example
+        """
+        return """
 EXAMPLE: Setting clock in bedroom (CLOCK_SET milestone)
-
-Milestone: "Set the clock in player's bedroom"
-
 This involves several steps:
 1. Enter house (if outside) → Location changes to "HOUSE 1F"
 2. Go upstairs → Location changes to "HOUSE 2F"
-3. Move to clock position (5,1) → Navigate to specific coordinates
-4. Interact with clock → Face up and press A
-5. Exit house → Location changes back to town
+3. Interact with clock → Navigate to specific coordinates, face up and press A
 
 Each of these could be a subtask:
 
 First subtask example:
 Decision: CREATE_NEW
 Description: Enter player's house from town
-Precondition: state['player']['location'].find('LITTLEROOT TOWN') >= 0
+Precondition: state['player']['location'] == 'LITTLEROOT TOWN'
 Success Condition: state['player']['location'].find('HOUSE') >= 0
 
 Second subtask example:
@@ -1097,34 +1177,49 @@ Third subtask example:
 Decision: CREATE_NEW
 Description: Move to clock and interact (at position 5,1, then press up+A)
 Precondition: state['player']['location'].find('2F') >= 0
-Success Condition: (state['player']['position']['x'], state['player']['position']['y']) == (5, 1) and action == ['up', 'a']
+Success Condition: (state['player']['position']['x'], state['player']['position']['y']) == (5, 1) and prev_action == ['up', 'a']
 
-NOTE: Both 'state' and 'action' variables are available in conditions.
+NOTE: Both 'state' and 'prev_action' variables are available in conditions.
 - state: Current game state dict
-- action: Last action taken (can be single string like 'up' or list like ['up', 'a'])
+- prev_action: Last action taken (can be single string like 'up' or list like ['up', 'a'])
 - For multi-action sequences, code should return a list (e.g., return ['up', 'a'])"""
 
-        # Build complete prompt
-        prompt = f"""You are working on milestone: [{main_milestone['description']}]
+    def build_subtask_response_structure(
+        self,
+        main_milestone: Dict[str, Any],
+        current_subtask: Optional[Dict[str, Any]]
+    ) -> str:
+        """
+        Build response structure section for subtask mode
 
-CURRENT SUBTASK:
-{current_subtask['description'] if current_subtask else 'None (just starting)'}
-- Precondition: {current_subtask.get('precondition', 'N/A') if current_subtask else 'N/A'}
-- Success Condition: {current_subtask.get('success_condition', 'N/A') if current_subtask else 'N/A'}
+        Args:
+            main_milestone: Main milestone dict
+            current_subtask: Current subtask dict (or None)
 
-SITUATION: {situation}
-{situation_instructions.get(situation, "")}
-{clock_example}
+        Returns:
+            Formatted response structure instructions
+        """
+        task_desc = current_subtask['description'] if current_subtask else main_milestone['description']
 
-CURRENT GAME STATE:
-{formatted_state}
+        return f"""---
 
-{recent_milestones_text}
-
----
+IMPORTANT: Structure your response EXACTLY like this (use 'SECTION_NAME:' format with colon, NOT markdown headers):
 
 ANALYSIS:
-[Analyze the situation. What's the current state? What needs to happen?]
+[First, describe what you SEE directly in the visual frame:
+- What is shown on screen? (menus, dialog boxes, overworld, battle, etc.)
+- What objects or sprites are visible? (NPCs, items, doors, stairs, etc.)
+- Where is the player character positioned in the frame?
+- Are there any UI elements or text displayed?
+
+Then analyze the game state data and situation:
+- Current location and coordinates
+- What's the current state? What needs to happen?]
+
+KNOWLEDGE UPDATE (Optional):
+[If you learned something important that should be remembered for future runs, add it here:
+ADD_KNOWLEDGE: <one sentence describing the fact>
+Only add NEW facts that aren't already in the knowledge base above.]
 
 TASK_DECOMPOSITION:
 [What should you do with the current subtask?
@@ -1138,8 +1233,8 @@ Decision: [KEEP_CURRENT | CREATE_NEW | DECOMPOSE]
 
 If CREATE_NEW or DECOMPOSE, define the next immediate subtask:
 Description: [What to do]
-Precondition: [When to start - Python expression using 'state']
-Success Condition: [When done - Python expression using 'state']
+Precondition: [When to start - Python expression using 'state' (and 'prev_action' if needed)]
+Success Condition: [When done - Python expression using 'state' (and 'prev_action' if needed)]
 
 Example:
 Decision: CREATE_NEW
@@ -1164,63 +1259,189 @@ CODE:
 ```python
 def run(state):
     \"\"\"
-    {current_subtask['description'] if current_subtask else main_milestone['description']}
+    {task_desc}
     \"\"\"
     # Implementation
-    return action  # Single action string like 'up', 'down', 'left', 'right', 'a', 'b'
+    return action  # Single action string like 'up', 'down', 'left', 'right', 'a', 'b', or list of two actions like ['up', 'a']
 ```
 
 IMPORTANT:
 - Each subtask should represent ONE major state change (usually a map/location change)
 - Keep subtasks simple and achievable
 - Use state['player']['location'] to check current location
-- Use state['player']['position']['x'] and ['y'] for coordinates
-"""
+- Use state['player']['position']['x'] and ['y'] for coordinates"""
 
-        return prompt
+    def build_subtask_prompt(
+        self,
+        main_milestone: Dict[str, Any],
+        current_subtask: Optional[Dict[str, Any]],
+        situation: str,
+        state: Dict[str, Any],
+        milestone_manager: Any = None,
+        subtask_manager: Any = None,
+        # 추가 파라미터들 (재사용 섹션용)
+        execution_error: Optional[Dict[str, Any]] = None,
+        previous_code: str = "",
+        previous_actions: Optional[List[Any]] = None,
+        knowledge_base: Any = None,
+        previous_analyses: Optional[List[Tuple[int, str]]] = None,
+        include_state_schema: bool = True
+    ) -> str:
+        """
+        Build unified prompt for subtask-based code generation
+
+        Now reuses section builders from build_prompt for consistency!
+
+        Args:
+            main_milestone: Main milestone dict
+            current_subtask: Current subtask dict (or None)
+            situation: Situation string (SUCCESS_ACHIEVED, PRECONDITION_FAILED, STUCK, NORMAL)
+            state: Current game state
+            milestone_manager: MilestoneManager instance for formatting milestones
+            execution_error: Execution error info (optional)
+            previous_code: Previous code (optional, for stuck situations)
+            previous_actions: Previous actions list (optional)
+            knowledge_base: Knowledge base text (optional)
+            include_state_schema: Whether to include state schema (default: True)
+
+        Returns:
+            str: Complete prompt for VLM
+        """
+        sections = []
+
+        # 1. System instruction (재사용)
+        sections.append(self.build_system_instruction())
+        sections.append("")
+
+        # 2. Visual note (재사용)
+        sections.append(self.build_visual_note_section())
+        sections.append("")
+
+        # 3. Main milestone (간소화)
+        sections.append(f"You are working on milestone: [{main_milestone['description']}]")
+        sections.append("")
+
+        # 4. Current subtask info (새 메서드)
+        sections.append(self.build_subtask_info_section(current_subtask))
+        sections.append("")
+
+        # 5. Situation (새 메서드)
+        sections.append(self.build_situation_section(situation))
+        sections.append("")
+
+        # 6. Current game state (재사용)
+        from utils.state_formatter import convert_state_to_dict, filter_state_for_llm
+        import json
+
+        formatted = convert_state_to_dict(state)
+        filtered = filter_state_for_llm(formatted)
+        formatted_state = json.dumps(filtered, indent=2, default=str)
+        sections.append(self.build_game_state_section(formatted_state))
+        sections.append("")
+
+        # 7. Recent milestones and subtasks (기존 + subtask_manager 추가)
+        recent_milestones_text = self._format_recent_milestones(state, milestone_manager, subtask_manager)
+        sections.append(recent_milestones_text)
+        sections.append("")
+
+        # 8. Knowledge Base (재사용 - if available)
+        if knowledge_base:
+            sections.append(self.build_knowledge_base_section(knowledge_base))
+            sections.append("")
+
+        # 8.5. Previous analyses (재사용 - if available)
+        if previous_analyses and len(previous_analyses) > 0:
+            sections.append(self.build_previous_analyses_section(previous_analyses))
+            sections.append("")
+
+        # 9. Execution error (재사용 - if available)
+        if execution_error:
+            sections.append(self.build_execution_error_section(execution_error))
+            sections.append("")
+
+        # 10. Previous code (재사용 - if stuck or available)
+        if previous_code:
+            sections.append(self.build_previous_code_section(previous_code))
+            sections.append("")
+
+        # 11. Previous actions (재사용 - if available)
+        if previous_actions and len(previous_actions) > 0:
+            sections.append(self.build_previous_actions_section(previous_actions))
+            sections.append("")
+
+        # 12. State schema (재사용 - 선택적)
+        if include_state_schema:
+            sections.append(self.build_state_schema_section())
+            sections.append("")
+
+        # 13. Clock example (항상 표시)
+        sections.append(self.build_clock_example_section())
+        sections.append("")
+
+        # 14. Response structure (subtask용)
+        sections.append(self.build_subtask_response_structure(main_milestone, current_subtask))
+
+        return "\n".join(sections)
 
     def _format_recent_milestones(
         self,
         state: Dict[str, Any],
-        milestone_manager: Any = None
+        milestone_manager: Any = None,
+        subtask_manager: Any = None
     ) -> str:
         """
-        Format recent 3 successful subtasks (custom milestones) for context
+        Format recent successful subtasks AND milestones for context (time-ordered)
 
         Args:
             state: Game state with milestones
             milestone_manager: MilestoneManager instance (optional)
+            subtask_manager: SubtaskManager instance (optional)
 
         Returns:
-            Formatted string of recent subtasks
+            Formatted string of recent subtasks and milestones
         """
+        all_items = []
+
+        # 1. Get completed milestones from state
         milestones = state.get('milestones', {})
-        if not milestones:
+        if milestones:
+            for mid, mdata in milestones.items():
+                if isinstance(mdata, dict) and mdata.get('completed', False):
+                    timestamp = mdata.get('timestamp', 0)
+                    description = mid
+                    if milestone_manager:
+                        milestone_info = milestone_manager.get_milestone_info(mid)
+                        description = milestone_info.get('description', mid)
+
+                    all_items.append({
+                        'type': 'milestone',
+                        'description': description,
+                        'timestamp': timestamp
+                    })
+
+        # 2. Get completed subtasks from subtask_manager
+        if subtask_manager:
+            completed_subtasks = subtask_manager.get_recent_completed_subtasks(count=10)
+            for subtask in completed_subtasks:
+                all_items.append({
+                    'type': 'subtask',
+                    'description': subtask['description'],
+                    'timestamp': subtask['timestamp']
+                })
+
+        if not all_items:
             return "RECENT SUCCESSFUL SUBTASKS: None yet"
 
-        # Get completed milestones (includes custom milestones = subtasks)
-        completed = [
-            (mid, mdata)
-            for mid, mdata in milestones.items()
-            if isinstance(mdata, dict) and mdata.get('completed', False)
-        ]
+        # 3. Sort by timestamp (most recent first) and take last 5
+        all_items.sort(key=lambda x: x['timestamp'], reverse=True)
+        recent = all_items[:5]
 
-        # Sort by completion order (if timestamp available)
-        completed.sort(key=lambda x: x[1].get('timestamp', 0), reverse=True)
-
-        # Take last 3
-        recent = completed[:3]
-
-        if not recent:
-            return "RECENT SUCCESSFUL SUBTASKS: None yet"
-
-        lines = ["RECENT SUCCESSFUL SUBTASKS (for context):"]
-        for mid, mdata in recent:
-            if milestone_manager:
-                milestone_info = milestone_manager.get_milestone_info(mid)
-                lines.append(f"  ✓ {milestone_info['description']}")
+        # 4. Format output
+        lines = ["RECENT SUCCESSFUL SUBTASKS (time-ordered):"]
+        for item in recent:
+            if item['type'] == 'subtask':
+                lines.append(f"  {item['description']}")
             else:
-                # Fallback without milestone_manager
-                lines.append(f"  ✓ {mid}")
+                lines.append(f"  {item['description']}")
 
         return "\n".join(lines)

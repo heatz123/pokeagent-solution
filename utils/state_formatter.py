@@ -335,7 +335,6 @@ def convert_state_to_dict(state_data):
             formatted["map"]["ascii_map"] = ascii_map_data["ascii_map"]
             formatted["map"]["legend"] = ascii_map_data["legend"]
             formatted["map"]["player_position"] = ascii_map_data["player_position"]
-            formatted["map"]["explored_bounds"] = ascii_map_data["explored_bounds"]
             if ascii_map_data.get("warps"):
                 formatted["map"]["warps"] = ascii_map_data["warps"]
 
@@ -345,29 +344,47 @@ def convert_state_to_dict(state_data):
 
     return formatted
 
-def format_state_for_llm_json(state_data):
-    """
-    Format state as JSON string for LLM prompts (CodeAgent)
 
-    Returns structured JSON string instead of formatted text.
-    This allows LLM to work with structured data directly and write code
-    that accesses state fields programmatically.
+def filter_state_for_llm(state_dict):
+    """
+    Filter state dictionary for LLM consumption by removing unreliable or unnecessary fields.
+
+    This is the central filtering function that removes:
+    - milestones: Formatted separately in prompts
+    - movement_preview: Not needed for CodeAgent
+    - facing: Unreliable orientation data
+    - npcs: Unreliable position data
 
     Args:
-        state_data (dict): The comprehensive state from /state endpoint
+        state_dict (dict): State dictionary from convert_state_to_dict()
 
     Returns:
-        str: JSON string with structured state data
+        dict: Filtered state dictionary (deep copy to avoid mutation)
     """
-    import json
+    import copy
 
-    # Use shared conversion function
-    formatted = convert_state_to_dict(state_data)
-    formatted.pop("milestones")
-    formatted.pop("movement_preview", None)  # Remove movement_preview from CodeAgent state
+    # Deep copy to avoid modifying original
+    filtered = copy.deepcopy(state_dict)
 
-    # Return as formatted JSON string
-    return json.dumps(formatted, indent=2, default=str)
+    # 1. Remove top-level fields
+    filtered.pop('milestones', None)           # Formatted separately
+    filtered.pop('movement_preview', None)     # Not needed for CodeAgent
+
+    # 2. Remove unreliable player_position.facing
+    if 'map' in filtered and 'player_position' in filtered['map']:
+        if isinstance(filtered['map']['player_position'], dict):
+            filtered['map']['player_position'].pop('facing', None)
+
+    # 3. Remove unreliable NPCs data
+    if 'map' in filtered:
+        filtered['map'].pop('npcs', None)
+
+    # 3. Remove unreliable NPCs data
+    if 'map' in filtered:
+        filtered['map'].pop('npcs', None)
+
+    return filtered
+
 
 def _extract_object_positions_from_area(area):
     """
@@ -450,14 +467,12 @@ def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=
 
     Returns:
         dict: {
-            "ascii_map": str (full ASCII map with coordinates),
-            "legend": str (dynamic legend),
+            "ascii_map": list of str (ASCII map rows from game coord 0,0 to explored max),
+            "legend": list of str (dynamic legend),
             "player_position": dict (x, y, facing),
-            "explored_bounds": dict (min_x, max_x, min_y, max_y),
             "warps": list (warp information)
         } or None if data not available
     """
-    from utils.map_stitcher_singleton import get_instance
     from utils.map_formatter import generate_dynamic_legend
 
     # Get player position
@@ -470,21 +485,31 @@ def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=
     map_bank = map_data.get('map_bank', 0)
     map_number = map_data.get('map_number', 0)
     current_map_id = (map_bank << 8) | map_number
+    print(f"[STATE_FORMATTER] map_bank={map_bank}, map_number={map_number}, current_map_id=0x{current_map_id:04X}")
 
-    # Get MapStitcher instance
-    map_stitcher = get_instance()
+    # Get MapStitcher instance - prefer the one from map_data (passed from memory_reader)
+    # This ensures we use the same instance with all the accumulated map data
+    map_stitcher = map_data.get('_map_stitcher_instance')
+    if not map_stitcher:
+        # Fallback: load from file for cases where it's not passed
+        from utils.map_stitcher import MapStitcher
+        map_stitcher = MapStitcher()  # Auto-loads from file
+        print(f"[STATE_FORMATTER] Using fallback MapStitcher loaded from file")
+    else:
+        print(f"[STATE_FORMATTER] Using MapStitcher instance from memory_reader")
+
+    print(f"[STATE_FORMATTER] MapStitcher has {len(map_stitcher.map_areas)} areas: {[f'0x{k:04X}' for k in list(map_stitcher.map_areas.keys())[:5]]}")
+    print(f"[STATE_FORMATTER] Looking for map_id 0x{current_map_id:04X} in MapStitcher: {current_map_id in map_stitcher.map_areas}")
 
     # Try to get stitched map data for current map
     stitched_map_data = None
-    explored_bounds = None
     warp_info = []
 
     if current_map_id in map_stitcher.map_areas:
         area = map_stitcher.map_areas[current_map_id]
         stitched_map_data = area.map_data
-        explored_bounds = area.explored_bounds
 
-        # Extract warp information (convert to world coordinates)
+        # Extract warp information (from_position is already in game coordinates)
         for conn in map_stitcher.warp_connections:
             if conn.from_map_id == current_map_id:
                 # Get destination location name
@@ -492,19 +517,12 @@ def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=
                 if conn.to_map_id in map_stitcher.map_areas:
                     dest_name = map_stitcher.map_areas[conn.to_map_id].location_name
 
-                # Convert warp position from absolute to world coordinates
-                # from_position is (x, y) in absolute coordinates
-                warp_abs_x, warp_abs_y = conn.from_position
-
-                # Get origin offset for conversion
-                offset = area.origin_offset if hasattr(area, 'origin_offset') else {'x': 0, 'y': 0}
-
-                # World coords = absolute coords - origin offset
-                warp_world_x = warp_abs_x - offset.get('x', 0)
-                warp_world_y = warp_abs_y - offset.get('y', 0)
+                # from_position is already in game coordinates (player position when warp triggered)
+                # No conversion needed - use as-is
+                warp_game_x, warp_game_y = conn.from_position
 
                 warp_info.append({
-                    "position": {"x": warp_world_x, "y": warp_world_y},
+                    "position": {"x": warp_game_x, "y": warp_game_y},
                     "leads_to": dest_name,
                     "type": conn.warp_type,
                     "direction": conn.direction
@@ -519,16 +537,7 @@ def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=
         # Use current view
         stitched_map_data = raw_tiles
 
-        # Calculate bounds for 15x15 view
-        radius = 7
-        explored_bounds = {
-            "min_x": player_x - radius,
-            "max_x": player_x + radius,
-            "min_y": player_y - radius,
-            "max_y": player_y + radius
-        }
-
-    # Generate ASCII map - SIMPLE! 0,0-based grid
+    # Generate ASCII map from game coordinate (0,0) to explored maximum
     from utils.map_formatter import format_stitched_map_simple, format_map_for_llm
 
     if current_map_id in map_stitcher.map_areas:
@@ -575,7 +584,6 @@ def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=
             "y": player_y,
             "facing": player_facing
         },
-        "explored_bounds": explored_bounds,
         "warps": warp_info
     }
 
