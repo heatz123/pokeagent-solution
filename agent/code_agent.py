@@ -11,6 +11,7 @@ import io
 import json
 import base64
 import signal
+import random
 from utils.llm_logger import get_llm_logger
 from utils.state_formatter import convert_state_to_dict, filter_state_for_llm
 from utils.milestone_manager import MilestoneManager
@@ -37,7 +38,7 @@ class CodeAgent:
     ]
 
     def __init__(self, model="gpt-5"):
-        """Initialize the CodeAgent with OpenAI or Claude"""
+        """Initialize the CodeAgent with OpenAI, Claude, or Gemini"""
 
         # Initialize client based on model
         if model == "gpt-5":
@@ -55,8 +56,18 @@ class CodeAgent:
             self.client = anthropic.Anthropic(api_key=api_key)
             self.provider = "claude"
 
+        elif "gemini" in model.lower():
+            import google.generativeai as genai
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY environment variable not set")
+            genai.configure(api_key=api_key)
+            self.client = genai.GenerativeModel(model)
+            self.genai = genai
+            self.provider = "gemini"
+
         else:
-            raise ValueError(f"Unsupported model: {model}. Use 'gpt-5' or 'claude-sonnet-4-5-20250929'")
+            raise ValueError(f"Unsupported model: {model}. Use 'gpt-5', 'claude-sonnet-4-5-20250929', or 'gemini-2.5-flash'")
 
         self.model = model
         self.llm_logger = get_llm_logger()
@@ -94,7 +105,8 @@ class CodeAgent:
                 include_visual_note=True,
                 include_milestones=True,
                 include_example_code=True,
-                include_knowledge_update=self.use_knowledge_base
+                include_knowledge_update=self.use_knowledge_base,
+                include_execution_logs=True
             )
         )
 
@@ -338,7 +350,7 @@ class CodeAgent:
                 previous_code=self.last_generated_code if situation == "STUCK" else "",
                 previous_actions=previous_actions,
                 knowledge_base=self.knowledge_base if self.use_knowledge_base else None,
-                previous_analyses=self.previous_analyses,
+                previous_analyses=self.previous_analyses if random.random() < 0.5 else [],
                 execution_logs=self.execution_logs,
                 include_state_schema=False  # State structure 불필요
             )
@@ -356,7 +368,7 @@ class CodeAgent:
                 execution_error=self.last_execution_error,
                 knowledge_base=self.knowledge_base if self.use_knowledge_base else None,
                 previous_actions=previous_actions,
-                previous_analyses=self.previous_analyses,
+                previous_analyses=self.previous_analyses if random.random() < 0.5 else [],
                 execution_logs=self.execution_logs
             )
 
@@ -364,6 +376,9 @@ class CodeAgent:
         start = time.time()
         response = self._call_llm(prompt, frame)
         duration = time.time() - start
+
+        # Clear execution logs (new code generation = fresh start)
+        self.execution_logs = []
 
         # Log interaction (common)
         self.llm_logger.log_interaction(
@@ -425,7 +440,7 @@ class CodeAgent:
 
     def _call_llm(self, prompt: str, frame=None) -> str:
         """
-        Unified LLM call supporting OpenAI and Claude
+        Unified LLM call supporting OpenAI, Claude, and Gemini
 
         Works for both subtask and non-subtask modes.
 
@@ -455,7 +470,7 @@ class CodeAgent:
             )
             return response.output_text
 
-        else:  # claude
+        elif self.provider == "claude":
             # Claude format
             content = [{"type": "text", "text": prompt}]
             if frame:
@@ -477,11 +492,40 @@ class CodeAgent:
             )
             return response.content[0].text
 
+        else:  # gemini
+            # Gemini format - uses PIL Image directly
+            content_parts = [prompt]
+            if frame:
+                content_parts.append(frame)
+
+            response = self.client.generate_content(content_parts)
+
+            # Check for safety filter
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'finish_reason') and candidate.finish_reason == 12:
+                    print("⚠️ Gemini safety filter triggered, trying text-only...")
+                    # Retry with text only
+                    response = self.client.generate_content([prompt])
+
+            return response.text
+
     def _extract_code(self, text):
         """Extract code from structured LLM response"""
         # Try to find CODE: section first (for structured responses)
-        if "CODE:" in text:
-            code_section = text.split("CODE:")[1]
+        # Important: Match standalone CODE: line to avoid matching "PREVIOUS CODE:" etc.
+        lines = text.split('\n')
+        code_section_start = -1
+
+        for i, line in enumerate(lines):
+            # Match CODE: as a standalone section header (exact match after strip)
+            if line.strip() == 'CODE:':
+                code_section_start = i
+                break
+
+        if code_section_start >= 0:
+            # Get everything after the CODE: line
+            code_section = '\n'.join(lines[code_section_start + 1:])
 
             # Extract from code block if present
             if "```python" in code_section:
@@ -491,11 +535,10 @@ class CodeAgent:
 
             # If no code block, take everything after CODE:
             # until we hit another section or end
-            lines = code_section.split('\n')
             code_lines = []
-            for line in lines:
-                # Stop at next section header
-                if any(line.strip().startswith(section) for section in ['ANALYSIS:', 'OBJECTIVES:', 'PLAN:', 'REASONING:']):
+            for line in code_section.split('\n'):
+                # Stop at next section header (uppercase headers with colon)
+                if any(line.strip().startswith(section) for section in ['ANALYSIS:', 'OBJECTIVES:', 'PLAN:', 'REASONING:', 'TASK_DECOMPOSITION:']):
                     break
                 code_lines.append(line)
 
@@ -596,7 +639,7 @@ class CodeAgent:
                         self.execution_logs = self.execution_logs[-self.max_logs:]
 
                 # Validate action (support single action or list of actions)
-                valid_actions = ['a', 'b', 'start', 'select', 'up', 'down', 'left', 'right']
+                valid_actions = ['a', 'b', 'start', 'select', 'up', 'down', 'left', 'right', 'no_op']
 
                 # Support single action (str)
                 if isinstance(action, str):
@@ -702,7 +745,7 @@ class CodeAgent:
                 'traceback': traceback_str
             }
 
-            return 'b'  # Default action on error
+            return 'no_op'  # No-op action on error (don't make things worse)
 
     def _parse_and_update_knowledge(self, llm_response: str, current_milestone: str):
         """
@@ -784,14 +827,14 @@ class CodeAgent:
             # Single actions don't count
             return False
 
-        # # Add to milestone manager
-        # self.milestone_manager.add_custom_milestone(
-        #     milestone_id="CLOCK_INTERACT",
-        #     description="From position (5,2) in player bedroom, execute action sequence ['up', 'a'] to move up to the clock and interact with it",
-        #     insert_after="PLAYER_BEDROOM",
-        #     check_fn=check_clock_interact,
-        #     category="custom"
-        # )
+        # Add to milestone manager
+        self.milestone_manager.add_custom_milestone(
+            milestone_id="CLOCK_INTERACT",
+            description="From position (5,2) in player bedroom, execute action sequence ['up', 'a'] to move up to the clock and interact with it",
+            insert_after="PLAYER_BEDROOM",
+            check_fn=check_clock_interact,
+            category="custom"
+        )
 
         # Example: Leave the house (same condition as CLOCK_SET)
         def check_leave_house(game_state, action):
@@ -812,23 +855,34 @@ class CodeAgent:
                     "HOUSE" not in location_upper and
                     "LAB" not in location_upper)
 
-        # # Add to milestone manager
-        # self.milestone_manager.add_custom_milestone(
-        #     milestone_id="LEAVE_HOUSE",
-        #     description="Leave the house and return to Littleroot Town (outside)",
-        #     insert_after="CLOCK_INTERACT",
-        #     check_fn=check_leave_house,
-        #     category="custom"
-        # )
+        # Add to milestone manager
+        self.milestone_manager.add_custom_milestone(
+            milestone_id="LEAVE_HOUSE",
+            description="Leave the house and return to Littleroot Town (outside)",
+            insert_after="CLOCK_INTERACT",
+            check_fn=check_leave_house,
+            category="custom"
+        )
 
         # Pokedex dialog confirmation
         def check_pokedex_dialog(game_state, action):
             """
-            Check if Pokedex dialog text appeared:
+            Check if Pokedex dialog text appeared in Birch's lab:
+            - Must be in Birch's lab location
             - Dialog text contains 'POKéDEX', 'POKEDEX', or variants (é is unicode U+00E9)
 
             Note: This is a dialog-based check, action parameter is not used.
             """
+            # Check location first
+            player = game_state.get("player", {})
+            location = player.get("location", "")
+            location_upper = str(location).upper()
+
+            # Must be in Birch's lab
+            if "LITTLEROOT TOWN PROFESSOR BIRCHS LAB" not in location_upper:
+                return False
+
+            # Check dialog text
             dialog_text = game_state.get("game", {}).get("dialog_text", "")
             dialog_upper = str(dialog_text).upper()
 
@@ -843,7 +897,7 @@ class CodeAgent:
         # Add to milestone manager
         self.milestone_manager.add_custom_milestone(
             milestone_id="POKEDEX_DIALOG_CONFIRMED",
-            description="Pokedex dialog text appeared (POKEDEX or POKEDE'X in dialog)",
+            description="Pokedex dialog text appeared in Birch's lab (POKEDEX or POKEDE'X in dialog at PROFESSOR BIRCHS LAB)",
             insert_after="ROUTE_103",
             check_fn=check_pokedex_dialog,
             category="dialog"
@@ -1034,7 +1088,7 @@ class CodeAgent:
             result = {
                 'task_decision': 'KEEP_CURRENT',
                 'new_subtask': None,
-                'code': 'return "b"  # Parse error - wait'
+                'code': 'return "no_op"  # Parse error - do nothing'
             }
 
         return result
