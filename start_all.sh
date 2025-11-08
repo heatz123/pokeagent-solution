@@ -1,5 +1,7 @@
 #!/bin/bash
-cd /home/heatz123/workspace/rl/pokeagent-speedrun-heatz
+# Run from current directory (no hardcoded path)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 export USE_SUBTASKS=true
 export USE_KNOWLEDGE_BASE=false
