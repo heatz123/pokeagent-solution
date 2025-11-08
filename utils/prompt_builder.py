@@ -1146,8 +1146,12 @@ IMPORTANT: The above code did NOT work. You can try a different strategy:
 You are controlling a Pokemon Emerald (GBA) game agent.
 
 OBSERVATION:
-- Visual: 240x160 screenshot of current game state
+- Visual: 240x160 screenshot of current game state (ground truth)
 - State data: Player info, location, game state, dialog, map (see below for details)
+
+IMPORTANT: State data may be inaccurate or incomplete due to memory reading limitations.
+When there is conflict between visual observation and state data, TRUST THE VISUAL OBSERVATION.
+Always verify critical information (dialog text, NPC positions, obstacles) from the screenshot.
 
 ACTION SPACE:
 Return ONE action string or a list of TWO actions:
