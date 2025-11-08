@@ -300,8 +300,19 @@ def extract_code_from_response(text):
         Extracted Python code string
     """
     # Try to find CODE: section first (for structured responses)
-    if "CODE:" in text:
-        code_section = text.split("CODE:")[1]
+    # Important: Match standalone CODE: line to avoid matching "PREVIOUS CODE:" etc.
+    lines = text.split('\n')
+    code_section_start = -1
+
+    for i, line in enumerate(lines):
+        # Match CODE: as a standalone section header (exact match after strip)
+        if line.strip() == 'CODE:':
+            code_section_start = i
+            break
+
+    if code_section_start >= 0:
+        # Get everything after the CODE: line
+        code_section = '\n'.join(lines[code_section_start + 1:])
 
         # Extract from code block if present
         if "```python" in code_section:
@@ -311,11 +322,10 @@ def extract_code_from_response(text):
 
         # If no code block, take everything after CODE:
         # until we hit another section or end
-        lines = code_section.split('\n')
         code_lines = []
-        for line in lines:
-            # Stop at next section header
-            if any(line.strip().startswith(section) for section in ['ANALYSIS:', 'OBJECTIVES:', 'PLAN:', 'REASONING:']):
+        for line in code_section.split('\n'):
+            # Stop at next section header (uppercase headers with colon)
+            if any(line.strip().startswith(section) for section in ['ANALYSIS:', 'OBJECTIVES:', 'PLAN:', 'REASONING:', 'TASK_DECOMPOSITION:']):
                 break
             code_lines.append(line)
 

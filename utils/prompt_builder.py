@@ -545,12 +545,10 @@ REASONING:
 CODE:
 [Your final Python code - define a function called 'run' that takes 'state' as parameter and returns ONE action string OR a list of actions.
 Add brief comments explaining your logic. Keep it simple and focused.]
-- Valid actions: 'a', 'b', 'start', 'select', 'up', 'down', 'left', 'right'
-- Single action: return 'up'
-- Multiple actions (executed in sequence, max 2): return ['up', 'a']
 
 REQUIREMENTS:
 - Return action as a lowercase string OR list of lowercase strings
+- Valid actions: 'a', 'b', 'start', 'select', 'up', 'down', 'left', 'right', 'no_op'
 - Action sequences are limited to a maximum of 2 actions
 - Include helpful comments in your code"""
 
@@ -863,6 +861,10 @@ class CodeAgentPromptBuilder:
         sections.append(self.build_system_instruction())
         sections.append("")
 
+        # 1.5. Environment introduction
+        sections.append(self.build_environment_section())
+        sections.append("")
+
         # 2. Visual note
         if self.config.include_visual_note:
             sections.append(self.build_visual_note_section())
@@ -1138,6 +1140,30 @@ IMPORTANT: The above code did NOT work. You can try a different strategy:
 
         return section
 
+    def build_environment_section(self) -> str:
+        """Build environment introduction section"""
+        return """ENVIRONMENT:
+You are controlling a Pokemon Emerald (GBA) game agent.
+
+OBSERVATION:
+- Visual: 240x160 screenshot of current game state
+- State data: Player info, location, game state, dialog, map (see below for details)
+
+ACTION SPACE:
+Return ONE action string or a list of TWO actions:
+- Movement: 'up', 'down', 'left', 'right' (tile-based)
+- Buttons: 'a' (confirm/interact), 'b' (cancel/back), 'start' (menu), 'select'
+- Special: 'no_op' (do nothing, useful when waiting)
+
+Examples: return 'a'  or  return ['up', 'a']
+
+KEY MECHANICS:
+- Each action takes ~1 second to execute in game
+- Movement is tile-based; walls/NPCs block movement
+- Press 'a' near objects/NPCs to interact
+- Dialogs require button presses to advance
+- Game has natural delays (animations, transitions)"""
+
     def build_milestone_section(self, milestone_info: Dict[str, Any]) -> str:
         """
         다음 마일스톤 정보 섹션 (CodeAgent 전용)
@@ -1396,35 +1422,17 @@ Only add NEW facts that aren't already in the knowledge base above.]
 
 IMPORTANT: Structure your response EXACTLY like this (use 'SECTION_NAME:' format with colon, NOT markdown headers):
 
-CRITICAL_EVALUATION:
-[You MUST critically evaluate your approach before proceeding:
-1. Review recent successful subtasks (if shown above):
-   - For EACH subtask: Identify weaknesses in its success condition
-   - Question: Is it too weak? Too broad? Does it measure side-effects instead of the actual goal?
-   - Watch for: location checks for action goals, premature triggers, or side-effect-only conditions
-   - If you spot weak conditions, design current subtask to properly retry/verify that goal
-
-2. Is the current subtask still valid? (Current subtask: "{subtask_desc}")
-   - Does the precondition make sense given current state?
-   - Is the success condition achievable and well-defined?
-3. Are we meeting the main milestone requirements? (Main milestone: "{milestone_desc}")
-   - Are we making progress toward the milestone?
-   - Is the subtask aligned with milestone goals?
-4. Is the current approach working?
-   - Review recent ANALYSIS sections - are we stuck in repeated failed attempts?
-   - If you see patterns of failure, what fundamentally needs to change?]
-
 ANALYSIS:
 [Analyze what you see in the frame and current game state - what's happening? where are you? what should you be doing?
 IMPORTANT: Look carefully at the game image for objects (clocks, pokeballs, bags) and NPCs (people, trainers) that might not be shown on the map. NPCs appear as sprite characters and can block movement or trigger battles/dialogue. When you see them try determine their location (X,Y) on the map relative to the player and any objects.
 
-Review EXECUTION LOGS (if shown above):
+If EXECUTION LOGS section is shown above, review.
 - What did the previous code log? What was it trying to do?
 - What insights can you gain from the logged messages?
 - Did the logs reveal any issues (e.g., repeated attempts, stuck situations, unexpected values)?
 - Use the logs to understand the previous code's decision-making process
 
-Review ACTIONS FROM PREVIOUS CODE (if shown above):
+If ACTIONS FROM PREVIOUS CODE section is shown above, analyze.
 - Why did the previous code fail or get stuck?
 - Were the same actions repeated at the same position?
 - Did the code try to move into walls or NPCs?
@@ -1539,36 +1547,6 @@ IMPORTANT: log is a BUILT-IN function already available in your code environment
 - Use for debugging stuck situations, tracking decisions, or noting game dialog
 - Prefer f-strings for formatted messages
 
-Example with logging:
-```python
-def run(state):
-    \"\"\"
-    {task_desc}
-    \"\"\"
-    player_x = state['player']['position']['x']
-    player_y = state['player']['position']['y']
-    location = state['player']['location']
-
-    log(f"Current position: ({{player_x}}, {{player_y}})")
-    log(f"Location: {{location}}")
-
-    # Check if we're at target position
-    if player_x == 5 and player_y == 2:
-        log("At target position! Moving up and interacting")
-        return ['up', 'a']
-    else:
-        log(f"Navigating to target from ({{player_x}}, {{player_y}})")
-        if player_x < 5:
-            log("Moving right")
-            return 'right'
-        elif player_x > 5:
-            log("Moving left")
-            return 'left'
-        else:
-            log("Moving up")
-            return 'up'
-```
-
 """
 
     def build_subtask_prompt(
@@ -1615,6 +1593,10 @@ def run(state):
 
         # 1. System instruction (재사용)
         sections.append(self.build_system_instruction())
+        sections.append("")
+
+        # 1.5. Environment introduction
+        sections.append(self.build_environment_section())
         sections.append("")
 
         # 2. Visual note (재사용)
