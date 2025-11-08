@@ -114,6 +114,10 @@ class CodeAgent:
         # Track last action for custom milestone checking
         self._last_action = None
 
+        # Execution logs from code runs (for debugging and context)
+        self.execution_logs = []  # List of (step_count, message) tuples
+        self.max_logs = 100  # Maximum number of logs to keep
+
         # Register custom milestones
         self._register_custom_milestones()
 
@@ -335,6 +339,7 @@ class CodeAgent:
                 previous_actions=previous_actions,
                 knowledge_base=self.knowledge_base if self.use_knowledge_base else None,
                 previous_analyses=self.previous_analyses,
+                execution_logs=self.execution_logs,
                 include_state_schema=False  # State structure 불필요
             )
         else:
@@ -351,7 +356,8 @@ class CodeAgent:
                 execution_error=self.last_execution_error,
                 knowledge_base=self.knowledge_base if self.use_knowledge_base else None,
                 previous_actions=previous_actions,
-                previous_analyses=self.previous_analyses
+                previous_analyses=self.previous_analyses,
+                execution_logs=self.execution_logs
             )
 
         # Unified LLM call
@@ -524,9 +530,23 @@ class CodeAgent:
             # Convert state to same format LLM saw in prompt
             formatted_state = convert_state_to_dict(state)
 
-            # Create execution environment with add_to_state_schema
+            # Log collection for this execution step
+            step_logs = []
+
+            def log(message: str):
+                """
+                Record a message during code execution
+                Can be called from generated code for debugging
+
+                Args:
+                    message: Message to log
+                """
+                step_logs.append(str(message))
+
+            # Create execution environment with add_to_state_schema and log
             exec_globals = {
-                'add_to_state_schema': add_to_state_schema
+                'add_to_state_schema': add_to_state_schema,
+                'log': log
             }
 
             # Execute code with 15-second timeout
@@ -564,6 +584,16 @@ class CodeAgent:
                     print(f"🔍 VLM queries made: {len(vlm_log)}")
                     for entry in vlm_log:
                         print(f"   {entry['key']}: {entry['result']} ({entry['return_type']})")
+
+                # Save execution logs
+                if step_logs:
+                    for msg in step_logs:
+                        self.execution_logs.append((self.step_count, msg))
+                        print(f"📝 [Step {self.step_count}] {msg}")
+
+                    # Keep only the most recent max_logs entries
+                    if len(self.execution_logs) > self.max_logs:
+                        self.execution_logs = self.execution_logs[-self.max_logs:]
 
                 # Validate action (support single action or list of actions)
                 valid_actions = ['a', 'b', 'start', 'select', 'up', 'down', 'left', 'right']
@@ -790,6 +820,34 @@ class CodeAgent:
         #     check_fn=check_leave_house,
         #     category="custom"
         # )
+
+        # Pokedex dialog confirmation
+        def check_pokedex_dialog(game_state, action):
+            """
+            Check if Pokedex dialog text appeared:
+            - Dialog text contains 'POKéDEX', 'POKEDEX', or variants (é is unicode U+00E9)
+
+            Note: This is a dialog-based check, action parameter is not used.
+            """
+            dialog_text = game_state.get("game", {}).get("dialog_text", "")
+            dialog_upper = str(dialog_text).upper()
+
+            # Check multiple variants (é with acute accent, regular e, etc.)
+            return ("POKEDEX" in dialog_upper or
+                    "POKÉDEX" in dialog_upper or
+                    "POKéDEX" in dialog_upper or
+                    "POKEDE'X" in dialog_upper or
+                    # Fallback: contains both "POK" and "DEX"
+                    ("POK" in dialog_upper and "DEX" in dialog_upper))
+
+        # Add to milestone manager
+        self.milestone_manager.add_custom_milestone(
+            milestone_id="POKEDEX_DIALOG_CONFIRMED",
+            description="Pokedex dialog text appeared (POKEDEX or POKEDE'X in dialog)",
+            insert_after="ROUTE_103",
+            check_fn=check_pokedex_dialog,
+            category="dialog"
+        )
 
     def _check_custom_milestones(self, game_state, action):
         """

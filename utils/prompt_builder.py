@@ -480,6 +480,7 @@ class CodePromptConfig:
     include_example_code: bool = True
     include_state_schema: bool = True
     include_knowledge_update: bool = True
+    include_execution_logs: bool = True
 
     # Template strings (can be customized)
     system_instruction_template: str = field(default=None)
@@ -644,7 +645,75 @@ IMPORTANT NOTES ON VISUAL OBSERVATIONS:
 - Use sparingly as VLM calls add 1-2 seconds latency per unique query
 - Prefer using state dict data when available (coordinates, location, etc.)
 - Use visual observations for UI state, menu detection, NPC positions, or other visual-only info
-- Be specific in your vlm_prompt for better accuracy'''
+- Be specific in your vlm_prompt for better accuracy
+
+---
+
+EXAMPLE WITH LOGGING:
+
+ANALYSIS:
+Looking at the frame, I can see we're in the bedroom with a clock on the wall. The player is at position (5, 2). I need to interact with the clock to set it, which requires moving up and pressing A.
+
+OBJECTIVES:
+Milestone: "Set the clock"
+Need to interact with the clock to open its UI and set the time.
+
+PLAN:
+Move up to position (5, 1) where the clock is, then press A to interact. Use logging to track progress and help with debugging.
+
+REASONING:
+Logging helps debug and track what the code is doing. This is especially useful when diagnosing stuck situations or understanding the decision flow. The logs will appear in the next prompt under EXECUTION LOGS section.
+
+CODE:
+```python
+def run(state):
+    """
+    Policy for clock interaction with logging.
+    Uses log() to record debug information for future reference.
+    """
+    player_x = state['player']['position']['x']
+    player_y = state['player']['position']['y']
+    location = state['player']['location']
+
+    log(f"Current position: ({player_x}, {player_y})")
+    log(f"Location: {location}")
+
+    # Check if we're at the right position (5, 2)
+    if player_x == 5 and player_y == 2:
+        log("At clock position! Moving up and interacting")
+        return ['up', 'a']
+    elif player_x == 5 and player_y == 1:
+        log("Already at clock, just pressing A")
+        return 'a'
+    else:
+        # Navigate to clock position first
+        log(f"Navigating to clock from ({player_x}, {player_y})")
+        if player_x < 5:
+            log("Moving right")
+            return 'right'
+        elif player_x > 5:
+            log("Moving left")
+            return 'left'
+        elif player_y < 2:
+            log("Moving down")
+            return 'down'
+        else:
+            log("Moving up")
+            return 'up'
+```
+
+IMPORTANT NOTES ON log() FUNCTION:
+- Use log('message') to record debug information during code execution
+- Logs are shown in the next prompt under EXECUTION LOGS section
+- Useful for debugging stuck situations, tracking decisions, or noting game dialog
+- Prefer f-strings for formatted messages (more readable and efficient)
+- Examples:
+  - log(f"Current position: ({x}, {y})")  # Use f-strings for values
+  - log("Checking if dialog is open...")   # Static messages
+  - log(f"Dialog text: {dialog_text}")     # Dynamic content
+  - log(f"NPC count: {npc_count}")         # Variable values
+- Logs persist across multiple steps, so you can see what happened in previous runs
+- Use logs to understand patterns, track state changes, and diagnose issues'''
 
     @staticmethod
     def _default_state_schema() -> str:
@@ -758,6 +827,7 @@ class CodeAgentPromptBuilder:
         knowledge_base: Any = None,
         previous_actions: Optional[List[Any]] = None,
         previous_analyses: Optional[List[Tuple[int, str]]] = None,
+        execution_logs: Optional[List[Tuple[int, str]]] = None,
         **kwargs
     ) -> str:
         """
@@ -777,6 +847,8 @@ class CodeAgentPromptBuilder:
                 - 'traceback': 트레이스백 (선택)
             knowledge_base: KnowledgeBase instance (선택)
             previous_actions: 이전 코드가 생성한 action 리스트 (선택)
+            previous_analyses: 이전 ANALYSIS 섹션 리스트 (선택)
+            execution_logs: 코드 실행 중 log() 함수로 기록된 로그들 (선택)
             **kwargs: 미래 확장성을 위한 추가 인자
 
         Returns:
@@ -833,6 +905,11 @@ class CodeAgentPromptBuilder:
         # 8.5. Actions from previous code (if available)
         if previous_actions and len(previous_actions) > 0:
             sections.append(self.build_previous_actions_section(previous_actions))
+            sections.append("")
+
+        # 8.6. Execution logs (if available and enabled)
+        if self.config.include_execution_logs and execution_logs and len(execution_logs) > 0:
+            sections.append(self.build_execution_logs_section(execution_logs))
             sections.append("")
 
         # 9. State schema (optional)
@@ -1143,6 +1220,35 @@ Goal: {milestone_desc}"""
         """State 자료구조 설명 섹션 (CodeAgent 전용)"""
         return self.config.state_schema_template
 
+    def build_execution_logs_section(self, execution_logs: List[Tuple[int, str]], limit: int = 30) -> str:
+        """
+        Format execution logs for LLM prompt
+
+        Args:
+            execution_logs: List of (step_count, message) tuples
+            limit: Maximum number of recent logs to include (default: 30)
+
+        Returns:
+            Formatted string for prompt
+        """
+        if not execution_logs or len(execution_logs) == 0:
+            return "EXECUTION LOGS: No logs yet. Use log('message') in your code to record debug info."
+
+        # Get recent logs (last N entries)
+        recent_logs = execution_logs[-limit:] if len(execution_logs) > limit else execution_logs
+
+        # Format output - one line per log entry
+        lines = [f"EXECUTION LOGS (from your previous code, showing last {len(recent_logs)} entries):"]
+        lines.append("")
+
+        for step, msg in recent_logs:
+            lines.append(f"[Step {step}] {msg}")
+
+        lines.append("")
+        lines.append("💡 These are debug messages you logged using log(). Use them to understand what happened in previous executions.")
+
+        return "\n".join(lines)
+
     def build_code_requirements_section(self) -> str:
         """코드 생성 요구사항 섹션 (CodeAgent 전용)"""
         return self.config.code_requirements_template
@@ -1312,7 +1418,20 @@ ANALYSIS:
 [Analyze what you see in the frame and current game state - what's happening? where are you? what should you be doing?
 IMPORTANT: Look carefully at the game image for objects (clocks, pokeballs, bags) and NPCs (people, trainers) that might not be shown on the map. NPCs appear as sprite characters and can block movement or trigger battles/dialogue. When you see them try determine their location (X,Y) on the map relative to the player and any objects.
 
-Check recent previous analyses. If similar failed attempt exists, QUOTE it:
+Review EXECUTION LOGS (if shown above):
+- What did the previous code log? What was it trying to do?
+- What insights can you gain from the logged messages?
+- Did the logs reveal any issues (e.g., repeated attempts, stuck situations, unexpected values)?
+- Use the logs to understand the previous code's decision-making process
+
+Review ACTIONS FROM PREVIOUS CODE (if shown above):
+- Why did the previous code fail or get stuck?
+- Were the same actions repeated at the same position?
+- Did the code try to move into walls or NPCs?
+- What fundamental assumption was wrong?
+- What different approach should be tried?
+
+Check recent PREVIOUS ANALYSES. If similar failed attempt exists, QUOTE it:
   "[Step X] ..."
 We may use DIFFERENT subtask idea or code approach]
 
@@ -1408,6 +1527,48 @@ def run(state):
     # Implementation
     return action  # Single action string like 'up', 'down', 'left', 'right', 'a', 'b', or list of two actions like ['up', 'a']
 ```
+
+Note (Using log() for debugging):
+You can use the built-in log() function to record debug messages during code execution.
+
+IMPORTANT: log is a BUILT-IN function already available in your code environment.
+- DO NOT import it
+- DO NOT define it yourself
+- Just call it directly within your run() function
+- Logs are shown in the next prompt under EXECUTION LOGS section
+- Use for debugging stuck situations, tracking decisions, or noting game dialog
+- Prefer f-strings for formatted messages
+
+Example with logging:
+```python
+def run(state):
+    \"\"\"
+    {task_desc}
+    \"\"\"
+    player_x = state['player']['position']['x']
+    player_y = state['player']['position']['y']
+    location = state['player']['location']
+
+    log(f"Current position: ({{player_x}}, {{player_y}})")
+    log(f"Location: {{location}}")
+
+    # Check if we're at target position
+    if player_x == 5 and player_y == 2:
+        log("At target position! Moving up and interacting")
+        return ['up', 'a']
+    else:
+        log(f"Navigating to target from ({{player_x}}, {{player_y}})")
+        if player_x < 5:
+            log("Moving right")
+            return 'right'
+        elif player_x > 5:
+            log("Moving left")
+            return 'left'
+        else:
+            log("Moving up")
+            return 'up'
+```
+
 """
 
     def build_subtask_prompt(
@@ -1424,6 +1585,7 @@ def run(state):
         previous_actions: Optional[List[Any]] = None,
         knowledge_base: Any = None,
         previous_analyses: Optional[List[Tuple[int, str]]] = None,
+        execution_logs: Optional[List[Tuple[int, str]]] = None,
         include_state_schema: bool = True
     ) -> str:
         """
@@ -1437,10 +1599,13 @@ def run(state):
             situation: Situation string (SUCCESS_ACHIEVED, PRECONDITION_FAILED, STUCK, NORMAL)
             state: Current game state
             milestone_manager: MilestoneManager instance for formatting milestones
+            subtask_manager: SubtaskManager instance (optional)
             execution_error: Execution error info (optional)
             previous_code: Previous code (optional, for stuck situations)
             previous_actions: Previous actions list (optional)
             knowledge_base: Knowledge base text (optional)
+            previous_analyses: Previous ANALYSIS sections (optional)
+            execution_logs: Execution logs from code runs (optional)
             include_state_schema: Whether to include state schema (default: True)
 
         Returns:
@@ -1513,6 +1678,11 @@ CRITICAL: This is your main objective. ALL subtasks must directly contribute to 
         # 11. Previous actions (재사용 - if available)
         if previous_actions and len(previous_actions) > 0:
             sections.append(self.build_previous_actions_section(previous_actions))
+            sections.append("")
+
+        # 11.5. Execution logs (재사용 - if available)
+        if self.config.include_execution_logs and execution_logs and len(execution_logs) > 0:
+            sections.append(self.build_execution_logs_section(execution_logs))
             sections.append("")
 
         # 12. State schema (재사용 - 선택적)
