@@ -52,7 +52,7 @@ class MilestoneManager:
             "id": "CLOCK_SET",
             "description": "Set the clock in player's bedroom and leave the house",
             "category": "task",
-            "condition": "milestone_tracker.is_completed('PLAYER_BEDROOM') and 'LITTLEROOT' in str(state.get('player', {}).get('location', '')).upper() and 'HOUSE' not in str(state.get('player', {}).get('location', '')).upper() and 'LAB' not in str(state.get('player', {}).get('location', '')).upper()"
+            "condition": "'LITTLEROOT' in str(state.get('player', {}).get('location', '')).upper() and 'HOUSE' not in str(state.get('player', {}).get('location', '')).upper() and 'LAB' not in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
             "id": "RIVAL_HOUSE",
@@ -92,19 +92,19 @@ class MilestoneManager:
             "id": "OLDALE_TOWN",
             "description": "Arrive at Oldale Town",
             "category": "location",
-            "condition": "milestone_tracker.is_completed('LITTLEROOT_TOWN') and 'OLDALE' in str(state.get('player', {}).get('location', '')).upper()"
+            "condition": "'OLDALE' in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
             "id": "ROUTE_103",
             "description": "Travel to Route 103 and battle with May",
             "category": "location",
-            "condition": "milestone_tracker.is_completed('ROUTE_101') and milestone_tracker.is_completed('STARTER_CHOSEN') and ('ROUTE_103' in str(state.get('player', {}).get('location', '')).upper() or 'ROUTE 103' in str(state.get('player', {}).get('location', '')).upper())"
+            "condition": "'ROUTE_103' in str(state.get('player', {}).get('location', '')).upper() or 'ROUTE 103' in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
             "id": "RECEIVED_POKEDEX",
-            "description": "Receive Pokedex from Professor Birch",
+            "description": "Visit Birch's lab to receive Pokedex from Professor Birch",
             "category": "item",
-            "condition": "milestone_tracker.is_completed('ROUTE_103') and 'LITTLEROOT TOWN PROFESSOR BIRCHS LAB' in str(state.get('player', {}).get('location', '')).upper()"
+            "condition": "'LITTLEROOT TOWN PROFESSOR BIRCHS LAB' in str(state.get('player', {}).get('location', '')).upper()"
         },
 
         # Phase 5: Route 102 & Petalburg
@@ -112,25 +112,25 @@ class MilestoneManager:
             "id": "ROUTE_102",
             "description": "Travel to Route 102",
             "category": "location",
-            "condition": "milestone_tracker.is_completed('RECEIVED_POKEDEX') and ('ROUTE_102' in str(state.get('player', {}).get('location', '')).upper() or 'ROUTE 102' in str(state.get('player', {}).get('location', '')).upper())"
+            "condition": "'ROUTE_102' in str(state.get('player', {}).get('location', '')).upper() or 'ROUTE 102' in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
             "id": "PETALBURG_CITY",
             "description": "Arrive at Petalburg City",
             "category": "location",
-            "condition": "milestone_tracker.is_completed('LITTLEROOT_TOWN') and milestone_tracker.is_completed('OLDALE_TOWN') and 'PETALBURG' in str(state.get('player', {}).get('location', '')).upper()"
+            "condition": "'PETALBURG' in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
             "id": "DAD_FIRST_MEETING",
             "description": "Meet Dad at Petalburg Gym",
             "category": "story",
-            "condition": "milestone_tracker.is_completed('PETALBURG_CITY') and ('PETALBURG CITY GYM' in str(state.get('player', {}).get('location', '')).upper() or 'PETALBURG_CITY_GYM' in str(state.get('player', {}).get('location', '')).upper())"
+            "condition": "'PETALBURG CITY GYM' in str(state.get('player', {}).get('location', '')).upper() or 'PETALBURG_CITY_GYM' in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
             "id": "GYM_EXPLANATION",
             "description": "Receive gym explanation from Dad",
             "category": "story",
-            "condition": "milestone_tracker.is_completed('DAD_FIRST_MEETING') and ('PETALBURG CITY GYM' in str(state.get('player', {}).get('location', '')).upper() or 'PETALBURG_CITY_GYM' in str(state.get('player', {}).get('location', '')).upper())"
+            "condition": "'PETALBURG CITY GYM' in str(state.get('player', {}).get('location', '')).upper() or 'PETALBURG_CITY_GYM' in str(state.get('player', {}).get('location', '')).upper()"
         },
 
         # Phase 6: Road to Rustboro
@@ -138,31 +138,31 @@ class MilestoneManager:
             "id": "ROUTE_104_SOUTH",
             "description": "Travel to Route 104 (South)",
             "category": "location",
-            "condition": "milestone_tracker.is_completed('PETALBURG_CITY') and ('ROUTE_104' in str(state.get('player', {}).get('location', '')).upper() or 'ROUTE 104' in str(state.get('player', {}).get('location', '')).upper())"
+            "condition": "'ROUTE_104' in str(state.get('player', {}).get('location', '')).upper() or 'ROUTE 104' in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
             "id": "PETALBURG_WOODS",
             "description": "Navigate through Petalburg Woods",
             "category": "location",
-            "condition": "milestone_tracker.is_completed('ROUTE_104_SOUTH') and ('PETALBURG_WOODS' in str(state.get('player', {}).get('location', '')).upper() or 'PETALBURG WOODS' in str(state.get('player', {}).get('location', '')).upper())"
+            "condition": "'PETALBURG_WOODS' in str(state.get('player', {}).get('location', '')).upper() or 'PETALBURG WOODS' in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
             "id": "TEAM_AQUA_GRUNT_DEFEATED",
             "description": "Defeat Team Aqua grunt",
             "category": "battle",
-            "condition": "milestone_tracker.is_completed('PETALBURG_WOODS') and ('PETALBURG_WOODS' in str(state.get('player', {}).get('location', '')).upper() or 'PETALBURG WOODS' in str(state.get('player', {}).get('location', '')).upper()) and state.get('player', {}).get('position', {}).get('y') == 23 and state.get('player', {}).get('position', {}).get('x') in [26, 27]"
+            "condition": "('PETALBURG_WOODS' in str(state.get('player', {}).get('location', '')).upper() or 'PETALBURG WOODS' in str(state.get('player', {}).get('location', '')).upper()) and state.get('player', {}).get('position', {}).get('y') == 23 and state.get('player', {}).get('position', {}).get('x') in [26, 27]"
         },
         {
             "id": "ROUTE_104_NORTH",
             "description": "Travel to Route 104 (North)",
             "category": "location",
-            "condition": "milestone_tracker.is_completed('PETALBURG_WOODS') and milestone_tracker.is_completed('TEAM_AQUA_GRUNT_DEFEATED') and ('ROUTE_104' in str(state.get('player', {}).get('location', '')).upper() or 'ROUTE 104' in str(state.get('player', {}).get('location', '')).upper())"
+            "condition": "'ROUTE_104' in str(state.get('player', {}).get('location', '')).upper() or 'ROUTE 104' in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
             "id": "RUSTBORO_CITY",
             "description": "Arrive at Rustboro City",
             "category": "location",
-            "condition": "milestone_tracker.is_completed('PETALBURG_CITY') and 'RUSTBORO' in str(state.get('player', {}).get('location', '')).upper()"
+            "condition": "'RUSTBORO' in str(state.get('player', {}).get('location', '')).upper()"
         },
 
         # Phase 7: First Gym
@@ -170,19 +170,19 @@ class MilestoneManager:
             "id": "RUSTBORO_GYM_ENTERED",
             "description": "Enter Rustboro Gym",
             "category": "location",
-            "condition": "milestone_tracker.is_completed('RUSTBORO_CITY') and ('RUSTBORO_GYM' in str(state.get('player', {}).get('location', '')).upper() or 'RUSTBORO CITY GYM' in str(state.get('player', {}).get('location', '')).upper())"
+            "condition": "'RUSTBORO_GYM' in str(state.get('player', {}).get('location', '')).upper() or 'RUSTBORO CITY GYM' in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
             "id": "ROXANNE_DEFEATED",
             "description": "Defeat Gym Leader Roxanne",
             "category": "battle",
-            "condition": "milestone_tracker.is_completed('STONE_BADGE')"
+            "condition": "(len(state.get('game', {}).get('badges', [])) >= 1 or any('Stone' in str(b) for b in state.get('game', {}).get('badges', []))) if isinstance(state.get('game', {}).get('badges', []), list) else state.get('game', {}).get('badges', 0) >= 1"
         },
         {
             "id": "FIRST_GYM_COMPLETE",
             "description": "Receive Stone Badge (first gym badge)",
             "category": "badge",
-            "condition": "milestone_tracker.is_completed('STONE_BADGE') and 'GYM' not in str(state.get('player', {}).get('location', '')).upper()"
+            "condition": "((len(state.get('game', {}).get('badges', [])) >= 1 or any('Stone' in str(b) for b in state.get('game', {}).get('badges', []))) if isinstance(state.get('game', {}).get('badges', []), list) else state.get('game', {}).get('badges', 0) >= 1) and 'GYM' not in str(state.get('player', {}).get('location', '')).upper()"
         }
     ]
 
