@@ -24,8 +24,7 @@ def main():
     parser.add_argument("--port", type=int, default=8000, help="Server port")
     parser.add_argument("--delay", type=float, default=0.5, help="Delay between steps (seconds)")
     parser.add_argument("--model", type=str, default="gpt-5",
-                        choices=["gpt-5", "claude-sonnet-4-5-20250929"],
-                        help="Model to use (gpt-5 or claude-sonnet-4-5-20250929)")
+                        help="Model to use (gpt-5, claude-sonnet-4-5-20250929, gemini-2.5-flash, etc.)")
     args = parser.parse_args()
 
     server_url = f"http://localhost:{args.port}"
