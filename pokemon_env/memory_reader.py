@@ -2050,10 +2050,11 @@ class PokemonEmeraldReader:
         position = self.read_coordinates()
         transition_detected = self._check_area_transition()
         
-        # If we just transitioned, add a small delay for game state to stabilize
+        # If we just transitioned, add a delay for game state to stabilize
         # This addresses the frame-dependent timing issues mentioned in emerald_npc_decompilation
+        # Increased to 150ms to ensure map_bank/map_number sync with tiles
         if transition_detected:
-            time.sleep(0.05)  # 50ms delay to let game scripts complete
+            time.sleep(0.15)  # 150ms delay to let game scripts complete and state sync
             logger.debug("Applied post-transition delay for game state stabilization")
         
         # Always ensure map buffer is found

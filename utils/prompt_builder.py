@@ -479,6 +479,7 @@ class CodePromptConfig:
     include_milestones: bool = True
     include_example_code: bool = True
     include_state_schema: bool = True
+    include_knowledge_update: bool = True
 
     # Template strings (can be customized)
     system_instruction_template: str = field(default=None)
@@ -491,7 +492,7 @@ class CodePromptConfig:
         if self.system_instruction_template is None:
             self.system_instruction_template = self._default_system_instruction()
         if self.code_requirements_template is None:
-            self.code_requirements_template = self._default_code_requirements()
+            self.code_requirements_template = self._build_code_requirements_template()
         if self.example_code_template is None:
             self.example_code_template = self._default_example_code()
         if self.state_schema_template is None:
@@ -503,33 +504,37 @@ class CodePromptConfig:
 
 Based on the current game frame and state information, think through your next move step by step, then write Python policy code that helps progress toward the next milestone."""
 
-    @staticmethod
-    def _default_code_requirements() -> str:
-        return """IMPORTANT: Please think step by step before writing your code. Structure your response like this:
+    def _build_code_requirements_template(self) -> str:
+        """Build code requirements template with optional KNOWLEDGE_UPDATE section"""
 
-ANALYSIS:
-[First, describe what you SEE directly in the visual frame:
-- What is shown on screen? (menus, dialog boxes, overworld, battle, etc.)
-- What objects or sprites are visible? (NPCs, items, doors, stairs, etc.)
-- Where is the player character positioned in the frame?
-- Are there any UI elements or text displayed?
-
-Then analyze the game state data:
-- Current location and coordinates
-- What should you be doing based on the milestone?
-
-IMPORTANT: Start with visual description first, then connect it to state data.]
-
-OBJECTIVES:
-[Review the current milestone and your progress. What is the immediate goal? What steps are needed to reach the next milestone?]
-
-KNOWLEDGE UPDATE (Optional):
+        knowledge_section = """
+KNOWLEDGE_UPDATE:
 [If you learned something important that should be remembered for future runs, add it here:
 ADD_KNOWLEDGE: <one sentence describing the fact>
 Example: ADD_KNOWLEDGE: The clock has been set.
 Example: ADD_KNOWLEDGE: Talking to Mom triggers the Pokedex event.
 Only add NEW facts that aren't already in the knowledge base above.]
+""" if self.include_knowledge_update else ""
 
+        return f"""IMPORTANT: Please think step by step before writing your code. Structure your response like this:
+
+CRITICAL_EVALUATION:
+[Before proceeding, critically evaluate your approach:
+1. Are we meeting the main milestone requirements?
+   - Review the current milestone description and your progress toward it
+   - Is our approach aligned with milestone goals?
+2. Is the current approach working?
+   - Review recent ANALYSIS sections - are we stuck in repeated failed attempts?
+   - If you see patterns of failure, what fundamentally needs to change?]
+
+ANALYSIS:
+- Analyze what you see in the frame and current game state - what's happening? where are you? what should you be doing?
+IMPORTANT: Look carefully at the game image for objects (clocks, pokeballs, bags) and NPCs (people, trainers) that might not be shown on the map. NPCs appear as sprite characters and can block movement or trigger battles/dialogue. When you see them try determine their location (X,Y) on the map relative to the player and any objects.
+- If the previous code resulted in a stuck situation, analyze why it got stuck. We may have to try a different approach.
+
+OBJECTIVES:
+[Review the current milestone and your progress. What is the immediate goal? What steps are needed to reach the next milestone?]
+{knowledge_section}
 PLAN:
 [Think about your immediate goal - what do you want to accomplish in the next action? Consider the current milestone and game state.]
 
@@ -556,8 +561,8 @@ ANALYSIS:
 The frame is the moving van interior at game start. There are no mandatory dialogues here before exiting. The exit trigger is on the right edge of the van interior. Holding right will deterministically walk the player to the exit and transition to the next scene.
 
 OBJECTIVES:
-Milestone: “Exit the moving van.”
-Success when the location changes from the van interior to the house (e.g., Mom’s house 1F) or an outdoor/entrance transition occurs.
+Milestone: "Exit the moving van."
+Success when the location changes from the van interior to the house (e.g., Mom's house 1F) or an outdoor/entrance transition occurs.
 
 PLAN:
 Use a one-action policy: always return 'right' each step until the scene changes. No branching, no checks—this keeps the example minimal and robust for this specific milestone.
@@ -575,7 +580,71 @@ def run(state):
     """
     # No state inspection needed; the van exit is reached by moving right.
     return 'right'
-```'''
+```
+
+---
+
+EXAMPLE WITH VISUAL OBSERVATION:
+
+ANALYSIS:
+Looking at the frame, I can see we're in the bedroom with a clock on the wall. The player is currently at position (5, 2). The clock appears to be one tile north of the player. I need to check if the clock UI is already open to decide whether to move or interact.
+
+OBJECTIVES:
+Milestone: "Set the clock"
+Need to interact with the clock to open its UI and set the time.
+
+PLAN:
+Use visual observation to check if clock UI is open. If not open, move up to the clock and interact. If already open, press A to confirm.
+
+REASONING:
+The visual frame shows important UI state that may not be reflected in the text state. By querying the VLM, I can make more informed decisions about whether to navigate or interact.
+
+CODE:
+```python
+# Register visual observation for clock UI state
+add_to_state_schema(
+    key="is_clock_ui_open",
+    vlm_prompt="Is the clock setting UI currently visible on screen? Look for any menus, dialogs or interfaces related to setting time.",
+    return_type=bool
+)
+
+def run(state):
+    """
+    Policy for clock interaction with visual observation.
+    Uses VLM to check if clock UI is already open.
+    """
+    # Access visual observation (VLM call happens here on first access)
+    if state["is_clock_ui_open"]:
+        # Clock UI is open, confirm the time
+        return 'a'
+    else:
+        # Clock UI not open, navigate and interact
+        player_x = state['player']['position']['x']
+        player_y = state['player']['position']['y']
+
+        # Check if we're at the right position (5, 2)
+        if player_x == 5 and player_y == 2:
+            # We're right below the clock, move up and interact
+            return ['up', 'a']
+        else:
+            # Navigate to clock position first
+            if player_x < 5:
+                return 'right'
+            elif player_x > 5:
+                return 'left'
+            elif player_y < 2:
+                return 'down'
+            else:
+                return 'up'
+```
+
+IMPORTANT NOTES ON VISUAL OBSERVATIONS:
+- Use add_to_state_schema() BEFORE the run() function to register visual queries
+- Visual queries are cached per step (multiple accesses to state["key"] = one VLM call)
+- Use sparingly as VLM calls add 1-2 seconds latency per unique query
+- Prefer using state dict data when available (coordinates, location, etc.)
+- Use visual observations for UI state, menu detection, NPC positions, or other visual-only info
+- Be specific in your vlm_prompt for better accuracy'''
 
     @staticmethod
     def _default_state_schema() -> str:
@@ -682,6 +751,7 @@ class CodeAgentPromptBuilder:
         self,
         formatted_state: str,
         next_milestone_info: Optional[Dict[str, Any]] = None,
+        current_subtask: Optional[Dict[str, Any]] = None,
         stuck_warning: str = "",
         previous_code: str = "",
         execution_error: Optional[Dict[str, Any]] = None,
@@ -698,6 +768,7 @@ class CodeAgentPromptBuilder:
             next_milestone_info: 다음 마일스톤 정보 (선택)
                 - 'id': 마일스톤 ID
                 - 'description': 마일스톤 설명
+            current_subtask: 현재 활성 subtask (선택)
             stuck_warning: Stuck 감지 경고 메시지 (선택)
             previous_code: 이전 코드 정보 (stuck일 때만)
             execution_error: 실행 에러 정보 (에러 발생 시)
@@ -852,15 +923,16 @@ class CodeAgentPromptBuilder:
                 sections.append("")
 
             # Warps
-            if 'warps' in map_data and map_data['warps']:
-                sections.append("Available Warps:")
-                for warp in map_data['warps']:
-                    pos = warp['position']
-                    sections.append(
-                        f"  • ({pos['x']}, {pos['y']}): {warp['type']} → "
-                        f"{warp['leads_to']} ({warp['direction']})"
-                    )
-                sections.append("")
+            # COMMENTED OUT: Warp positions are confusing (show spawn pos, not tile pos)
+            # if 'warps' in map_data and map_data['warps']:
+            #     sections.append("Available Warps:")
+            #     for warp in map_data['warps']:
+            #         pos = warp['position']
+            #         sections.append(
+            #             f"  • ({pos['x']}, {pos['y']}): {warp['type']} → "
+            #             f"{warp['leads_to']} ({warp['direction']})"
+            #         )
+            #     sections.append("")
 
             sections.append("=" * 60)
             sections.append("")
@@ -1056,13 +1128,14 @@ Goal: {milestone_desc}"""
         Returns:
             Formatted string for prompt
         """
-        # Take last 30 (should already be limited, but safe guard)
-        display = analyses[-30:]
+        # Take last 20 (should already be limited, but safe guard)
+        display = analyses[-20:]
 
-        lines = ["PREVIOUS ANALYSES (recent observations from past steps):"]
+        lines = [f"PREVIOUS ANALYSES (showing {len(display)} recent observations):"]
         for step, text in display:
             lines.append(f"\n[Step {step}]")
             lines.append(text.strip())
+            lines.append("")  # Empty line between analyses for clarity
 
         return "\n".join(lines)
 
@@ -1122,7 +1195,7 @@ None (just starting)
         situation_instructions = {
             "NORMAL": """You are starting work on this milestone. Decide if you need to break it into subtasks.""",
 
-            "SUCCESS_ACHIEVED": """✅ CURRENT SUBTASK COMPLETED!
+            "SUCCESS_ACHIEVED": """✅ PREVIOUS SUBTASK COMPLETED!
 The success condition was met. Now decide what to do next:
 - Create the next subtask if there's more work
 - Or mark milestone as complete if done""",
@@ -1162,19 +1235,19 @@ This involves several steps:
 Each of these could be a subtask:
 
 First subtask example:
-Decision: CREATE_NEW
+Decision: CREATE_OR_MODIFY
 Description: Enter player's house from town
 Precondition: state['player']['location'] == 'LITTLEROOT TOWN'
 Success Condition: state['player']['location'].find('HOUSE') >= 0
 
 Second subtask example:
-Decision: CREATE_NEW
+Decision: CREATE_OR_MODIFY
 Description: Navigate to 2nd floor bedroom
 Precondition: state['player']['location'].find('1F') >= 0
 Success Condition: state['player']['location'].find('2F') >= 0
 
 Third subtask example:
-Decision: CREATE_NEW
+Decision: CREATE_OR_MODIFY
 Description: Move to clock and interact (at position 5,1, then press up+A)
 Precondition: state['player']['location'].find('2F') >= 0
 Success Condition: (state['player']['position']['x'], state['player']['position']['y']) == (5, 1) and prev_action == ['up', 'a']
@@ -1182,7 +1255,9 @@ Success Condition: (state['player']['position']['x'], state['player']['position'
 NOTE: Both 'state' and 'prev_action' variables are available in conditions.
 - state: Current game state dict
 - prev_action: Last action taken (can be single string like 'up' or list like ['up', 'a'])
-- For multi-action sequences, code should return a list (e.g., return ['up', 'a'])"""
+- For multi-action sequences, code should return a list (e.g., return ['up', 'a'])
+
+"""
 
     def build_subtask_response_structure(
         self,
@@ -1201,61 +1276,130 @@ NOTE: Both 'state' and 'prev_action' variables are available in conditions.
         """
         task_desc = current_subtask['description'] if current_subtask else main_milestone['description']
 
+        knowledge_section = """
+KNOWLEDGE_UPDATE:
+[If you learned something important that should be remembered for future runs, add it here:
+ADD_KNOWLEDGE: <one sentence describing the fact>
+Only add NEW facts that aren't already in the knowledge base above.]
+""" if self.config.include_knowledge_update else ""
+
+        milestone_desc = main_milestone.get('description', 'Unknown milestone')
+        subtask_desc = current_subtask.get('description', 'No active subtask') if current_subtask else 'No active subtask'
+
         return f"""---
 
 IMPORTANT: Structure your response EXACTLY like this (use 'SECTION_NAME:' format with colon, NOT markdown headers):
 
+CRITICAL_EVALUATION:
+[You MUST critically evaluate your approach before proceeding:
+1. Review recent successful subtasks (if shown above):
+   - For EACH subtask: Identify weaknesses in its success condition
+   - Question: Is it too weak? Too broad? Does it measure side-effects instead of the actual goal?
+   - Watch for: location checks for action goals, premature triggers, or side-effect-only conditions
+   - If you spot weak conditions, design current subtask to properly retry/verify that goal
+
+2. Is the current subtask still valid? (Current subtask: "{subtask_desc}")
+   - Does the precondition make sense given current state?
+   - Is the success condition achievable and well-defined?
+3. Are we meeting the main milestone requirements? (Main milestone: "{milestone_desc}")
+   - Are we making progress toward the milestone?
+   - Is the subtask aligned with milestone goals?
+4. Is the current approach working?
+   - Review recent ANALYSIS sections - are we stuck in repeated failed attempts?
+   - If you see patterns of failure, what fundamentally needs to change?]
+
 ANALYSIS:
-[First, describe what you SEE directly in the visual frame:
-- What is shown on screen? (menus, dialog boxes, overworld, battle, etc.)
-- What objects or sprites are visible? (NPCs, items, doors, stairs, etc.)
-- Where is the player character positioned in the frame?
-- Are there any UI elements or text displayed?
+[Analyze what you see in the frame and current game state - what's happening? where are you? what should you be doing?
+IMPORTANT: Look carefully at the game image for objects (clocks, pokeballs, bags) and NPCs (people, trainers) that might not be shown on the map. NPCs appear as sprite characters and can block movement or trigger battles/dialogue. When you see them try determine their location (X,Y) on the map relative to the player and any objects.
 
-Then analyze the game state data and situation:
-- Current location and coordinates
-- What's the current state? What needs to happen?]
+Check recent previous analyses. If similar failed attempt exists, QUOTE it:
+  "[Step X] ..."
+We may use DIFFERENT subtask idea or code approach]
 
-KNOWLEDGE UPDATE (Optional):
-[If you learned something important that should be remembered for future runs, add it here:
-ADD_KNOWLEDGE: <one sentence describing the fact>
-Only add NEW facts that aren't already in the knowledge base above.]
-
+{knowledge_section}
 TASK_DECOMPOSITION:
 [What should you do with the current subtask?
 
 Options:
 1. KEEP_CURRENT - Continue with current subtask as-is
-2. CREATE_NEW - Current task is done/invalid, create next subtask
+2. CREATE_OR_MODIFY - Current task/precondition/success condition is done/invalid, create next subtask
 3. DECOMPOSE - Current task is too complex, break it into smaller subtask
 
-Decision: [KEEP_CURRENT | CREATE_NEW | DECOMPOSE]
+Before deciding KEEP/CREATE/DECOMPOSE, check:
+If the same subtask's actions haven't changed location or state for several steps, treat it as infeasible.
+When infeasible, create a new subtask that resolves whatever is blocking progress before retrying.
 
-If CREATE_NEW or DECOMPOSE, define the next immediate subtask:
-Description: [What to do]
-Precondition: [When to start - Python expression using 'state' (and 'prev_action' if needed)]
-Success Condition: [When done - Python expression using 'state' (and 'prev_action' if needed)]
+Reasoning: [Why are you making this decision? What evidence from state/observations/progress supports this choice?]
 
-Example:
-Decision: CREATE_NEW
-Description: Navigate to 2nd floor
+Decision: [KEEP_CURRENT | CREATE_OR_MODIFY | DECOMPOSE]
+
+If CREATE_OR_MODIFY or DECOMPOSE, define the subtask:
+Description: [What to do - keep same if only modifying conditions]
+Precondition: [When to start - Python expression using 'state' (and 'prev_action' if needed). Must use only basic state fields from STATE DATA STRUCTURE.]
+Success Condition: [When done - Python expression using 'state' (and 'prev_action' if needed). Must use only basic state fields from STATE DATA STRUCTURE.]
+
+Note: For CREATE_OR_MODIFY, you can either:
+- Create a new subtask (provide new Description, Precondition, Success Condition)
+- Modify current subtask (keep Description, update Precondition/Success Condition)
+
+Examples:
+
+Example 1 (Creating new subtask):
+Reasoning: The player is on 1F and needs to reach 2F bedroom to interact with clock. Current location shows 1F, so navigation to stairs and upstairs is the next logical step.
+Decision: CREATE_OR_MODIFY
+Description: Navigate to 2nd floor bedroom
 Precondition: state['player']['location'].find('1F') >= 0
 Success Condition: state['player']['location'].find('2F') >= 0
-]
 
-CONDITION_REFINEMENT:
-[Are the current precondition/success_condition correct?
-
-If they need changes, provide corrected versions:
-PRECONDITION: [corrected expression]
-SUCCESS_CONDITION: [corrected expression]
-
-Otherwise: NO_CHANGE
-]
+Example 2 (Modifying conditions):
+Reasoning: The success condition was too loose - just reaching 2F isn't enough. Need to be at specific coordinates (5,1) and interact with clock by pressing up+a.
+Decision: CREATE_OR_MODIFY
+Description: Move to clock and interact
+Precondition: state['player']['location'].find('2F') >= 0
+Success Condition: state['player']['position']['x'] == 5 and state['player']['position']['y'] == 1 and prev_action in [['up', 'a'], 'a']
 
 CODE:
 [Implement policy for current subtask]
 
+Note (Processing Visual Observations):
+You can query the screenshot for visual information using the built-in add_to_state_schema() function.
+
+IMPORTANT: add_to_state_schema is a BUILT-IN function already available in your code environment.
+- DO NOT import it
+- DO NOT define it yourself
+- Just call it directly before your run() function
+
+Usage:
+- Call it BEFORE the run() function to register visual queries
+- Syntax: add_to_state_schema(key="name", vlm_prompt="question", return_type=type)
+- Supported types: bool, int, str, float, list, dict
+- Results are cached per step (accessing state["key"] multiple times = 1 VLM call)
+- Adds ~300-1500ms latency per unique query
+- Use sparingly - prefer state dict data when available
+- Good for: UI state, menu detection, NPC positions, dialog boxes, visual-only info
+- Be specific in prompts for better accuracy
+- Visual keys work ONLY in run() function, NOT in Precondition/Success Condition
+
+Example with visual observation:
+```python
+add_to_state_schema(
+    key="num_npcs",
+    vlm_prompt="How many NPC characters (people) are visible? Count only NPCs, not the player. Answer with just a number.",
+    return_type=int
+)
+
+def run(state):
+    \"\"\"
+    {task_desc}
+    \"\"\"
+    # Accessing again uses cached result (no additional VLM call)
+    if state["num_npcs"] > 0:
+        return 'up'  # Avoid NPCs
+
+    return 'right'  # Navigate
+```
+
+Standard policy (no visual observations):
 ```python
 def run(state):
     \"\"\"
@@ -1264,12 +1408,7 @@ def run(state):
     # Implementation
     return action  # Single action string like 'up', 'down', 'left', 'right', 'a', 'b', or list of two actions like ['up', 'a']
 ```
-
-IMPORTANT:
-- Each subtask should represent ONE major state change (usually a map/location change)
-- Keep subtasks simple and achievable
-- Use state['player']['location'] to check current location
-- Use state['player']['position']['x'] and ['y'] for coordinates"""
+"""
 
     def build_subtask_prompt(
         self,
@@ -1317,8 +1456,15 @@ IMPORTANT:
         sections.append(self.build_visual_note_section())
         sections.append("")
 
-        # 3. Main milestone (간소화)
-        sections.append(f"You are working on milestone: [{main_milestone['description']}]")
+        # 3. Main milestone (강화 - milestone 중요성 강조)
+        sections.append(f"""🎯 YOUR PRIMARY GOAL: [{main_milestone['description']}]
+
+CRITICAL: This is your main objective. ALL subtasks must directly contribute to achieving this milestone.
+- If a subtask doesn't lead toward this milestone, STOP and create a different subtask
+- If you're stuck on the same subtask for multiple steps without milestone progress, change your approach
+- Subtasks are tools to achieve the milestone - don't get lost in subtasks that don't help
+- Always ask: "Is my current subtask moving me closer to completing this milestone?"
+""")
         sections.append("")
 
         # 4. Current subtask info (새 메서드)
@@ -1409,13 +1555,16 @@ IMPORTANT:
                 if isinstance(mdata, dict) and mdata.get('completed', False):
                     timestamp = mdata.get('timestamp', 0)
                     description = mid
+                    condition = ''
                     if milestone_manager:
                         milestone_info = milestone_manager.get_milestone_info(mid)
                         description = milestone_info.get('description', mid)
+                        condition = milestone_info.get('condition', '')
 
                     all_items.append({
                         'type': 'milestone',
                         'description': description,
+                        'condition': condition,
                         'timestamp': timestamp
                     })
 
@@ -1426,6 +1575,7 @@ IMPORTANT:
                 all_items.append({
                     'type': 'subtask',
                     'description': subtask['description'],
+                    'condition': subtask.get('success_condition', ''),
                     'timestamp': subtask['timestamp']
                 })
 
@@ -1439,9 +1589,8 @@ IMPORTANT:
         # 4. Format output
         lines = ["RECENT SUCCESSFUL SUBTASKS (time-ordered):"]
         for item in recent:
-            if item['type'] == 'subtask':
-                lines.append(f"  {item['description']}")
-            else:
-                lines.append(f"  {item['description']}")
+            lines.append(f"  {item['description']}")
+            if item.get('condition'):
+                lines.append(f"    → {item['condition']}")
 
         return "\n".join(lines)

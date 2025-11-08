@@ -108,6 +108,7 @@ class SubtaskManager:
                     'id': self.current_subtask['id'],
                     'description': self.current_subtask['description'],
                     'parent_milestone_id': self.current_subtask.get('parent_milestone_id'),
+                    'success_condition': self.current_subtask.get('success_condition', ''),
                     'timestamp': datetime.now().timestamp(),
                     'type': 'subtask'  # For distinguishing from milestones
                 })
@@ -128,34 +129,35 @@ class SubtaskManager:
             action: Last action taken (optional)
 
         Returns:
-            tuple: (success: bool, result: bool)
+            tuple: (success: bool, result: bool, error_msg: str)
                 - success: True if evaluation succeeded, False if exception occurred
                 - result: True if condition is met, False otherwise
+                - error_msg: Error message if evaluation failed, empty string otherwise
 
         Note:
-            Uses restricted eval with 'state' and 'action' variables available.
-            Helper functions can be added later if needed.
+            Uses eval with built-in functions available.
         """
         if not condition_text or not condition_text.strip():
-            return (True, False)  # Empty condition = successfully evaluated as False
+            return (True, False, "")  # Empty condition = successfully evaluated as False
 
         try:
-            # Restricted namespace - 'state' and 'action' variables available
+            # Namespace with built-in functions enabled
             namespace = {
-                "__builtins__": {},  # No built-in functions
+                "__builtins__": __builtins__,
                 "state": state,
                 "prev_action": prev_action
             }
 
             result = eval(condition_text, namespace)
-            return (True, bool(result))  # Success, with result
+            return (True, bool(result), "")  # Success, with result
 
         except Exception as e:
-            logger.warning(f"Condition evaluation failed: {e}")
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            logger.warning(f"Condition evaluation failed: {error_msg}")
             logger.debug(f"  Condition: {condition_text}")
             logger.debug(f"  State keys: {list(state.keys()) if state else 'None'}")
             logger.debug(f"  Prev action: {prev_action}")
-            return (False, False)  # Evaluation failed
+            return (False, False, error_msg)  # Evaluation failed
 
     def save_state(self, milestone_id: str):
         """

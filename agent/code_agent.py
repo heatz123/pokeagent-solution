@@ -10,6 +10,7 @@ import time
 import io
 import json
 import base64
+import signal
 from utils.llm_logger import get_llm_logger
 from utils.state_formatter import convert_state_to_dict, filter_state_for_llm
 from utils.milestone_manager import MilestoneManager
@@ -17,10 +18,23 @@ from utils.prompt_builder import CodeAgentPromptBuilder, CodePromptConfig
 from utils.stuck_detector import StuckDetector
 from utils.knowledge_base import KnowledgeBase
 from utils.subtask_manager import SubtaskManager
+from utils.vlm_state import State, get_global_schema_registry, add_to_state_schema
+from utils.vlm_caller import VLMCaller
 
 
 class CodeAgent:
     """Agent that generates and executes Python code to determine actions"""
+
+    # Known section headers for response parsing
+    # These are the possible headers that can appear after ANALYSIS
+    SECTION_HEADERS = [
+        'OBJECTIVES:',
+        'KNOWLEDGE_UPDATE:',
+        'PLAN:',
+        'REASONING:',
+        'TASK_DECOMPOSITION:',
+        'CODE:'
+    ]
 
     def __init__(self, model="gpt-5"):
         """Initialize the CodeAgent with OpenAI or Claude"""
@@ -79,12 +93,17 @@ class CodeAgent:
             config=CodePromptConfig(
                 include_visual_note=True,
                 include_milestones=True,
-                include_example_code=True
+                include_example_code=True,
+                include_knowledge_update=self.use_knowledge_base
             )
         )
 
         # Knowledge base for persistent learning across runs
         self.knowledge_base = KnowledgeBase() if self.use_knowledge_base else None
+
+        # VLM caller for visual observations (Ollama)
+        vlm_model = os.getenv("VLM_MODEL", "qwen3-vl:2b")
+        self.vlm_caller = VLMCaller(model=vlm_model)
 
         # Store previous ANALYSIS sections (last 30)
         self.previous_analyses = []
@@ -186,20 +205,24 @@ class CodeAgent:
                     )
 
                     # Handle task decomposition
-                    if parsed['task_decision'] in ['CREATE_NEW', 'DECOMPOSE']:
+                    if parsed['task_decision'] in ['CREATE_OR_MODIFY', 'DECOMPOSE']:
                         if parsed.get('new_subtask'):
-                            current_subtask = self.create_next_subtask(
-                                next_milestone_info,
-                                parsed['new_subtask'],
-                                game_state
-                            )
+                            new_sub = parsed['new_subtask']
+                            # Check if modifying conditions (same description) or creating new subtask
+                            if current_subtask and new_sub['description'].strip() == current_subtask['description'].strip():
+                                # Modify existing subtask conditions
+                                current_subtask['precondition'] = new_sub['precondition']
+                                current_subtask['success_condition'] = new_sub['success_condition']
+                                print(f"🔧 Updated conditions for current subtask: {current_subtask['description']}")
+                            else:
+                                # Create new subtask
+                                current_subtask = self.create_next_subtask(
+                                    next_milestone_info,
+                                    parsed['new_subtask'],
+                                    game_state
+                                )
                         else:
-                            print("⚠️ No subtask data despite CREATE_NEW/DECOMPOSE decision")
-
-                    # Handle condition refinement
-                    if (parsed.get('refined_precondition') or parsed.get('refined_success')):
-                        if current_subtask:
-                            current_subtask = self.update_subtask_conditions(current_subtask, parsed)
+                            print("⚠️ No subtask data despite CREATE_OR_MODIFY/DECOMPOSE decision")
 
                     # Save code to current subtask
                     if current_subtask and parsed.get('code'):
@@ -312,7 +335,7 @@ class CodeAgent:
                 previous_actions=previous_actions,
                 knowledge_base=self.knowledge_base if self.use_knowledge_base else None,
                 previous_analyses=self.previous_analyses,
-                include_state_schema=True
+                include_state_schema=False  # State structure 불필요
             )
         else:
             # Non-subtask prompt
@@ -322,6 +345,7 @@ class CodeAgent:
             prompt = self.prompt_builder.build_prompt(
                 formatted_state=state_text,
                 next_milestone_info=next_milestone_info,
+                current_subtask=self.subtask_manager.get_current_subtask() if self.use_subtasks else None,
                 stuck_warning=stuck_warning,
                 previous_code=previous_code_raw,
                 execution_error=self.last_execution_error,
@@ -355,6 +379,9 @@ class CodeAgent:
             if len(self.previous_analyses) > 30:
                 self.previous_analyses.pop(0)
 
+        # Clear error after successful code generation (common for both modes)
+        self.last_execution_error = None
+
         # Extract code and return (branching!)
         if self.use_subtasks:
             # Subtask mode: Parse full response
@@ -370,9 +397,6 @@ class CodeAgent:
                 print(f"📍 Next Milestone: {next_milestone_info['id']}")
             else:
                 print(f"🏆 All Milestones Complete!")
-
-            # Clear error on success
-            self.last_execution_error = None
 
             return code
 
@@ -421,7 +445,7 @@ class CodeAgent:
                 model=self.model,
                 instructions="You are a Pokemon Emerald AI coding assistant. Generate clean, executable Python code based on visual and text information.",
                 input=[{"role": "user", "content": input_content}],
-                reasoning={"effort": "low"}
+                reasoning={"effort": "low"},
             )
             return response.output_text
 
@@ -483,7 +507,7 @@ class CodeAgent:
 
     def _execute_code(self, code, state):
         """
-        Execute generated code and extract action
+        Execute generated code with State object supporting VLM queries
 
         Args:
             code: Python code string with run(state) function
@@ -493,16 +517,53 @@ class CodeAgent:
             action string (e.g., 'up', 'a')
         """
         try:
+            # Clear schema registry before each execution
+            schema_registry = get_global_schema_registry()
+            schema_registry.clear()
+
             # Convert state to same format LLM saw in prompt
             formatted_state = convert_state_to_dict(state)
 
-            # Create execution environment
-            exec_globals = {}
+            # Create execution environment with add_to_state_schema
+            exec_globals = {
+                'add_to_state_schema': add_to_state_schema
+            }
+
+            # Execute code with 15-second timeout
+            def timeout_handler(signum, frame):
+                raise TimeoutError("Code execution exceeded 15 seconds")
+
+            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(15)  # 15초 timeout
+
+            # Execute code (timeout will cover exec + State creation + run() call)
             exec(code, exec_globals)
 
-            # Call run function with formatted state
+            # Create State object with VLM support
+            screenshot = state.get('frame')
+            state_obj = State(
+                base_data=formatted_state,
+                schema_registry=schema_registry,
+                vlm_caller=lambda screenshot, prompt, return_type: self.vlm_caller.call(
+                    screenshot, prompt, return_type
+                ),
+                screenshot=screenshot
+            )
+
+            # Call run function with State object
             if 'run' in exec_globals:
-                action = exec_globals['run'](formatted_state)
+                action = exec_globals['run'](state_obj)
+
+                # Cancel alarm after run() completes successfully
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+
+                # Log VLM accesses for debugging
+                vlm_log = state_obj.get_vlm_access_log()
+                if vlm_log:
+                    print(f"🔍 VLM queries made: {len(vlm_log)}")
+                    for entry in vlm_log:
+                        print(f"   {entry['key']}: {entry['result']} ({entry['return_type']})")
 
                 # Validate action (support single action or list of actions)
                 valid_actions = ['a', 'b', 'start', 'select', 'up', 'down', 'left', 'right']
@@ -512,6 +573,7 @@ class CodeAgent:
                     if action.lower() in valid_actions:
                         return action.lower()
                     else:
+                        # Alarm already cancelled above
                         error_msg = f"Invalid action returned: {action}"
                         print(f"⚠️ {error_msg}, using 'b'")
                         self.last_execution_error = {
@@ -523,6 +585,7 @@ class CodeAgent:
                 # Support multiple actions (list)
                 elif isinstance(action, list):
                     if len(action) == 0:
+                        # Alarm already cancelled above
                         error_msg = "Empty action list returned"
                         print(f"⚠️ {error_msg}, using 'b'")
                         self.last_execution_error = {
@@ -537,6 +600,7 @@ class CodeAgent:
                         if isinstance(act, str) and act.lower() in valid_actions:
                             validated_actions.append(act.lower())
                         else:
+                            # Alarm already cancelled above
                             error_msg = f"Invalid action in list: {act}"
                             print(f"⚠️ {error_msg}, using 'b'")
                             self.last_execution_error = {
@@ -549,6 +613,7 @@ class CodeAgent:
 
                 # Invalid type
                 else:
+                    # Alarm already cancelled above
                     error_msg = f"Invalid action type returned: {type(action).__name__} (expected str or list)"
                     print(f"⚠️ {error_msg}, using 'b'")
                     self.last_execution_error = {
@@ -557,6 +622,10 @@ class CodeAgent:
                     }
                     return 'b'
             else:
+                # Cancel alarm if no run function found
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+
                 error_msg = "No 'run' function found in code"
                 print(f"⚠️ {error_msg}, using 'b'")
                 self.last_execution_error = {
@@ -565,7 +634,30 @@ class CodeAgent:
                 }
                 return 'b'
 
+        except TimeoutError as e:
+            # Cancel alarm on timeout
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+            error_msg = f"Code execution timeout: {str(e)}"
+            print(f"⏰ {error_msg}")
+            print(f"Code:\n{code}")
+
+            self.last_execution_error = {
+                'error': error_msg,
+                'code': code,
+                'type': 'timeout'
+            }
+
+            return 'b'  # Default action on timeout
+
         except Exception as e:
+            # Cancel alarm on any exception
+            try:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+            except:
+                pass  # If signal cleanup fails, continue with error handling
+
             import traceback
             error_msg = f"Code execution error: {str(e)}"
             traceback_str = traceback.format_exc()
@@ -614,12 +706,23 @@ class CodeAgent:
         Returns:
             Extracted ANALYSIS text
         """
-        # Try different possible next sections (order matters: try most common first)
-        for next_section in ['OBJECTIVES:', 'KNOWLEDGE UPDATE', 'PLAN:', 'TASK_DECOMPOSITION:']:
-            result = self._extract_section(response, 'ANALYSIS:', next_section)
-            if result:
-                return result
-        return ""
+        # Find ANALYSIS: marker
+        start = response.find('ANALYSIS:')
+        if start == -1:
+            return ""
+
+        # Extract content after ANALYSIS:
+        content = response[start + len('ANALYSIS:'):]
+
+        # Find the earliest occurrence of any known section header
+        min_pos = len(content)
+        for header in self.SECTION_HEADERS:
+            pos = content.find(header)
+            if pos != -1 and pos < min_pos:
+                min_pos = pos
+
+        # Extract content up to the next section (or end if no section found)
+        return content[:min_pos].strip()
 
     def _register_custom_milestones(self):
         """Register custom milestones with completion conditions"""
@@ -651,14 +754,14 @@ class CodeAgent:
             # Single actions don't count
             return False
 
-        # Add to milestone manager
-        self.milestone_manager.add_custom_milestone(
-            milestone_id="CLOCK_INTERACT",
-            description="From position (5,2) in player bedroom, execute action sequence ['up', 'a'] to move up to the clock and interact with it",
-            insert_after="PLAYER_BEDROOM",
-            check_fn=check_clock_interact,
-            category="custom"
-        )
+        # # Add to milestone manager
+        # self.milestone_manager.add_custom_milestone(
+        #     milestone_id="CLOCK_INTERACT",
+        #     description="From position (5,2) in player bedroom, execute action sequence ['up', 'a'] to move up to the clock and interact with it",
+        #     insert_after="PLAYER_BEDROOM",
+        #     check_fn=check_clock_interact,
+        #     category="custom"
+        # )
 
         # Example: Leave the house (same condition as CLOCK_SET)
         def check_leave_house(game_state, action):
@@ -679,14 +782,14 @@ class CodeAgent:
                     "HOUSE" not in location_upper and
                     "LAB" not in location_upper)
 
-        # Add to milestone manager
-        self.milestone_manager.add_custom_milestone(
-            milestone_id="LEAVE_HOUSE",
-            description="Leave the house and return to Littleroot Town (outside)",
-            insert_after="CLOCK_INTERACT",
-            check_fn=check_leave_house,
-            category="custom"
-        )
+        # # Add to milestone manager
+        # self.milestone_manager.add_custom_milestone(
+        #     milestone_id="LEAVE_HOUSE",
+        #     description="Leave the house and return to Littleroot Town (outside)",
+        #     insert_after="CLOCK_INTERACT",
+        #     check_fn=check_leave_house,
+        #     category="custom"
+        # )
 
     def _check_custom_milestones(self, game_state, action):
         """
@@ -747,7 +850,7 @@ class CodeAgent:
 
         Args:
             current_subtask: Current active subtask dict (or None)
-            state: Current game state dict
+            state: Current game state dict (raw format)
 
         Returns:
             str: One of "SUCCESS_ACHIEVED", "PRECONDITION_FAILED", "STUCK", "NORMAL"
@@ -756,32 +859,50 @@ class CodeAgent:
         if not current_subtask:
             return "NORMAL"
 
+        # Convert state to same format as policy code sees
+        # This ensures conditions use the same structure shown in prompts
+        from utils.state_formatter import convert_state_to_dict
+        formatted_state = convert_state_to_dict(state)
+
         # Get last action for condition evaluation
         prev_action = self._last_action
 
         # Check SUCCESS condition first
         if current_subtask.get('success_condition'):
-            success, result = self.subtask_manager.evaluate_condition(
-                current_subtask['success_condition'], state, prev_action
+            success, result, error_msg = self.subtask_manager.evaluate_condition(
+                current_subtask['success_condition'], formatted_state, prev_action
             )
             if not success:
-                print(f"⚠️ Success condition evaluation failed - treating as not achieved")
+                # Condition evaluation failed - set error and return STUCK
+                print(f"⚠️ Success condition evaluation failed: {error_msg}")
+                self.last_execution_error = {
+                    'error': f"Success condition evaluation failed: {error_msg}",
+                    'condition': current_subtask['success_condition'],
+                    'type': 'condition_error'
+                }
+                return "STUCK"
             elif result:
                 return "SUCCESS_ACHIEVED"
 
         # Check PRECONDITION
         if current_subtask.get('precondition'):
-            success, result = self.subtask_manager.evaluate_condition(
-                current_subtask['precondition'], state, prev_action
+            success, result, error_msg = self.subtask_manager.evaluate_condition(
+                current_subtask['precondition'], formatted_state, prev_action
             )
             if not success:
-                print(f"⚠️ Precondition evaluation failed - treating as satisfied (benefit of doubt)")
-                # Evaluation failed (e.g., KeyError) - assume satisfied to avoid blocking progress
+                # Precondition evaluation failed - set error and return STUCK
+                print(f"⚠️ Precondition evaluation failed: {error_msg}")
+                self.last_execution_error = {
+                    'error': f"Precondition evaluation failed: {error_msg}",
+                    'condition': current_subtask['precondition'],
+                    'type': 'condition_error'
+                }
+                return "STUCK"
             elif not result:
                 # Precondition explicitly not met
                 return "PRECONDITION_FAILED"
 
-        # Check STUCK (using existing stuck detector)
+        # Check STUCK (using existing stuck detector - use raw state for position check)
         if self.stuck_detector.check_stuck(state):
             self.stuck_detector.reset()
             return "STUCK"
@@ -794,9 +915,8 @@ class CodeAgent:
         """
         Parse VLM response for subtask-based code generation
 
-        Extracts three main sections:
-        - TASK_DECOMPOSITION: Decision on subtask management
-        - CONDITION_REFINEMENT: Updated preconditions/success conditions
+        Extracts two main sections:
+        - TASK_DECOMPOSITION: Decision on subtask management (includes condition modification)
         - CODE: Policy implementation
 
         Args:
@@ -804,17 +924,15 @@ class CodeAgent:
 
         Returns:
             dict with:
-                - task_decision: 'KEEP_CURRENT' | 'CREATE_NEW' | 'DECOMPOSE'
-                - new_subtask: dict with description, precondition, success_condition (if CREATE_NEW/DECOMPOSE)
-                - refined_precondition: str (if refined)
-                - refined_success: str (if refined)
+                - task_decision: 'KEEP_CURRENT' | 'CREATE_OR_MODIFY' | 'DECOMPOSE'
+                - new_subtask: dict with description, precondition, success_condition (if CREATE_OR_MODIFY/DECOMPOSE)
                 - code: str (policy code)
         """
         result = {}
 
         try:
             # Extract TASK_DECOMPOSITION section
-            decomp_section = self._extract_section(response, 'TASK_DECOMPOSITION:', 'CONDITION_REFINEMENT:')
+            decomp_section = self._extract_section(response, 'TASK_DECOMPOSITION:', 'CODE:')
 
             # Parse decision
             decision_line = [line for line in decomp_section.split('\n') if 'Decision:' in line]
@@ -823,8 +941,8 @@ class CodeAgent:
 
                 if 'KEEP_CURRENT' in decision_text:
                     result['task_decision'] = 'KEEP_CURRENT'
-                elif 'CREATE_NEW' in decision_text:
-                    result['task_decision'] = 'CREATE_NEW'
+                elif 'CREATE_OR_MODIFY' in decision_text:
+                    result['task_decision'] = 'CREATE_OR_MODIFY'
                 elif 'DECOMPOSE' in decision_text:
                     result['task_decision'] = 'DECOMPOSE'
                 else:
@@ -832,8 +950,8 @@ class CodeAgent:
             else:
                 result['task_decision'] = 'KEEP_CURRENT'  # default
 
-            # If CREATE_NEW or DECOMPOSE, extract subtask info
-            if result['task_decision'] in ['CREATE_NEW', 'DECOMPOSE']:
+            # If CREATE_OR_MODIFY or DECOMPOSE, extract subtask info
+            if result['task_decision'] in ['CREATE_OR_MODIFY', 'DECOMPOSE']:
                 desc = self._extract_after_marker(decomp_section, 'Description:')
                 pre = self._extract_after_marker(decomp_section, 'Precondition:')
                 succ = self._extract_after_marker(decomp_section, 'Success Condition:')
@@ -848,17 +966,6 @@ class CodeAgent:
                     result['new_subtask'] = None
             else:
                 result['new_subtask'] = None
-
-            # Extract CONDITION_REFINEMENT section
-            refine_section = self._extract_section(response, 'CONDITION_REFINEMENT:', 'CODE:')
-            if 'NO_CHANGE' not in refine_section.upper():
-                refined_pre = self._extract_after_marker(refine_section, 'PRECONDITION:')
-                refined_succ = self._extract_after_marker(refine_section, 'SUCCESS_CONDITION:')
-
-                if refined_pre.strip():
-                    result['refined_precondition'] = refined_pre.strip()
-                if refined_succ.strip():
-                    result['refined_success'] = refined_succ.strip()
 
             # Extract CODE section (reuse existing _extract_code method)
             result['code'] = self._extract_code(response)
@@ -984,31 +1091,4 @@ class CodeAgent:
         print(f"   Success: {subtask['success_condition']}")
 
         return subtask
-
-    def update_subtask_conditions(self, current_subtask, parsed):
-        """
-        Update precondition and/or success_condition of current subtask
-
-        Args:
-            current_subtask: Current subtask dict
-            parsed: Parsed response with optional refined_precondition and refined_success
-
-        Returns:
-            Updated subtask dict
-        """
-        if not current_subtask:
-            return None
-
-        if parsed.get('refined_precondition'):
-            current_subtask['precondition'] = parsed['refined_precondition']
-            print(f"🔧 Updated precondition: {parsed['refined_precondition']}")
-
-        if parsed.get('refined_success'):
-            current_subtask['success_condition'] = parsed['refined_success']
-            print(f"🔧 Updated success condition: {parsed['refined_success']}")
-
-        # NOTE: We don't re-register as custom milestone to prevent nesting issues.
-        # Subtask completion is tracked via determine_situation().
-
-        return current_subtask
 

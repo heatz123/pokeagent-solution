@@ -510,23 +510,25 @@ def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=
         stitched_map_data = area.map_data
 
         # Extract warp information (from_position is already in game coordinates)
-        for conn in map_stitcher.warp_connections:
-            if conn.from_map_id == current_map_id:
-                # Get destination location name
-                dest_name = "Unknown"
-                if conn.to_map_id in map_stitcher.map_areas:
-                    dest_name = map_stitcher.map_areas[conn.to_map_id].location_name
-
-                # from_position is already in game coordinates (player position when warp triggered)
-                # No conversion needed - use as-is
-                warp_game_x, warp_game_y = conn.from_position
-
-                warp_info.append({
-                    "position": {"x": warp_game_x, "y": warp_game_y},
-                    "leads_to": dest_name,
-                    "type": conn.warp_type,
-                    "direction": conn.direction
-                })
+        # COMMENTED OUT: Warp positions show player spawn position, not actual warp tile position
+        # This causes confusion (off-by-1 appearance) compared to Object positions
+        # for conn in map_stitcher.warp_connections:
+        #     if conn.from_map_id == current_map_id:
+        #         # Get destination location name
+        #         dest_name = "Unknown"
+        #         if conn.to_map_id in map_stitcher.map_areas:
+        #             dest_name = map_stitcher.map_areas[conn.to_map_id].location_name
+        #
+        #         # from_position is already in game coordinates (player position when warp triggered)
+        #         # No conversion needed - use as-is
+        #         warp_game_x, warp_game_y = conn.from_position
+        #
+        #         warp_info.append({
+        #             "position": {"x": warp_game_x, "y": warp_game_y},
+        #             "leads_to": dest_name,
+        #             "type": conn.warp_type,
+        #             "direction": conn.direction
+        #         })
 
     # Fallback: use current 15x15 view if stitched data not available
     if stitched_map_data is None:
