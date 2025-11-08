@@ -140,6 +140,27 @@ class SubtaskManager:
         if not condition_text or not condition_text.strip():
             return (True, False, "")  # Empty condition = successfully evaluated as False
 
+        # Clean up condition text - remove markdown code blocks and backticks
+        # Gemini sometimes wraps conditions in ```python ... ``` or ``` ... ``` or ` ... `
+        cleaned_condition = condition_text.strip()
+
+        # Remove ```python and ``` markers
+        if cleaned_condition.startswith("```python"):
+            cleaned_condition = cleaned_condition[9:]  # Remove ```python
+        if cleaned_condition.startswith("```"):
+            cleaned_condition = cleaned_condition[3:]  # Remove ```
+        if cleaned_condition.endswith("```"):
+            cleaned_condition = cleaned_condition[:-3]  # Remove trailing ```
+
+        # Remove single backticks at start/end
+        if cleaned_condition.startswith("`") and cleaned_condition.endswith("`"):
+            cleaned_condition = cleaned_condition[1:-1]
+
+        cleaned_condition = cleaned_condition.strip()
+
+        if not cleaned_condition:
+            return (True, False, "")  # Empty after cleaning
+
         try:
             # Namespace with built-in functions enabled
             namespace = {
@@ -148,7 +169,7 @@ class SubtaskManager:
                 "prev_action": prev_action
             }
 
-            result = eval(condition_text, namespace)
+            result = eval(cleaned_condition, namespace)
             return (True, bool(result), "")  # Success, with result
 
         except Exception as e:
