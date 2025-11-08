@@ -1,9 +1,7 @@
 *.log
-*.gba
 *.pyc
 *.cpython
 *.pem
-*.gba
 llm_log_*
 CLAUDE.md
 AGENTS.md
