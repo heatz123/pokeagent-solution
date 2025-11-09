@@ -33,6 +33,12 @@ class KnowledgeEntry:
         self.created_step = step
         self.created_milestone = milestone
         self.created_timestamp = datetime.now().isoformat()
+
+        # Update tracking
+        self.updated_step = None
+        self.updated_milestone = None
+        self.updated_timestamp = None
+
         self.tags = []  # Optional: for future filtering
 
     def to_dict(self) -> Dict[str, Any]:
@@ -43,6 +49,9 @@ class KnowledgeEntry:
             "created_step": self.created_step,
             "created_milestone": self.created_milestone,
             "created_timestamp": self.created_timestamp,
+            "updated_step": self.updated_step,
+            "updated_milestone": self.updated_milestone,
+            "updated_timestamp": self.updated_timestamp,
             "tags": self.tags
         }
 
@@ -56,6 +65,9 @@ class KnowledgeEntry:
             entry_id=data['id']
         )
         entry.created_timestamp = data.get('created_timestamp', entry.created_timestamp)
+        entry.updated_step = data.get('updated_step')
+        entry.updated_milestone = data.get('updated_milestone')
+        entry.updated_timestamp = data.get('updated_timestamp')
         entry.tags = data.get('tags', [])
         return entry
 
@@ -152,6 +164,69 @@ class KnowledgeBase:
         self.entries = []
         self.save()
         logger.info("Knowledge base cleared")
+
+    def get_by_id(self, entry_id: str) -> Optional[KnowledgeEntry]:
+        """
+        Get a specific knowledge entry by ID
+
+        Args:
+            entry_id: Knowledge entry ID (e.g., "kb_1234567890")
+
+        Returns:
+            KnowledgeEntry if found, None otherwise
+        """
+        for entry in self.entries:
+            if entry.id == entry_id:
+                return entry
+        return None
+
+    def update_by_id(self, entry_id: str, new_content: str, step: int, milestone: str) -> bool:
+        """
+        Update a knowledge entry by ID
+
+        Args:
+            entry_id: Knowledge entry ID (e.g., "kb_1234567890")
+            new_content: New content to replace the old content
+            step: Current step number
+            milestone: Current milestone ID
+
+        Returns:
+            True if updated successfully, False if ID not found
+        """
+        for entry in self.entries:
+            if entry.id == entry_id:
+                # Update content and metadata
+                entry.content = new_content
+                entry.updated_step = step
+                entry.updated_milestone = milestone
+                entry.updated_timestamp = datetime.now().isoformat()
+                self.save()
+                logger.info(f"Updated knowledge entry {entry_id}: {new_content}")
+                return True
+
+        logger.warning(f"Knowledge entry {entry_id} not found for update")
+        return False
+
+    def delete_by_id(self, entry_id: str) -> bool:
+        """
+        Delete a knowledge entry by ID
+
+        Args:
+            entry_id: Knowledge entry ID (e.g., "kb_1234567890")
+
+        Returns:
+            True if deleted successfully, False if ID not found
+        """
+        for i, entry in enumerate(self.entries):
+            if entry.id == entry_id:
+                deleted_content = entry.content
+                del self.entries[i]
+                self.save()
+                logger.info(f"Deleted knowledge entry {entry_id}: {deleted_content}")
+                return True
+
+        logger.warning(f"Knowledge entry {entry_id} not found for deletion")
+        return False
 
     def __len__(self) -> int:
         """Return number of entries"""

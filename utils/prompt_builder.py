@@ -477,7 +477,7 @@ class CodePromptConfig:
     # Section toggles
     include_visual_note: bool = True
     include_milestones: bool = True
-    include_example_code: bool = True
+    include_example_code: bool = False
     include_state_schema: bool = True
     include_knowledge_update: bool = True
     include_execution_logs: bool = True
@@ -511,11 +511,30 @@ Based on the current game frame and state information, think through your next m
 
         knowledge_section = """
 KNOWLEDGE_UPDATE:
-[If you learned something important that should be remembered for future runs, add it here:
-ADD_KNOWLEDGE: <one sentence describing the fact>
-Example: ADD_KNOWLEDGE: The clock has been set.
-Example: ADD_KNOWLEDGE: Talking to Mom triggers the Pokedex event.
-Only add NEW facts that aren't already in the knowledge base above.]
+[If you learned something important that should be remembered for future runs, add or update knowledge:]
+
+Add new knowledge:
+  ADD_KNOWLEDGE: <sentence with any useful info - coordinates, locations, NPCs, items, etc.>
+
+Update existing knowledge by ID:
+  UPDATE_KNOWLEDGE: <ID> → <new sentence>
+
+Delete incorrect knowledge (optional):
+  DELETE_KNOWLEDGE: <ID>
+
+Examples:
+  ADD_KNOWLEDGE: The clock has been set
+  ADD_KNOWLEDGE: NPC trainer at (10, 5) in Route 103 facing down blocks path
+  ADD_KNOWLEDGE: Warp at coords (7, 8) in Littleroot Town goes to Player House 1F
+  UPDATE_KNOWLEDGE: kb_1234567890 → NPC trainer at (10, 5) in Route 103 was defeated, path now clear
+  UPDATE_KNOWLEDGE: kb_9876543210 → Warp (7, 8) Littleroot → House 1F spawns at (5, 7)
+  DELETE_KNOWLEDGE: kb_1111111111
+
+IMPORTANT:
+- Include coordinate information from VISUAL FRAME ANALYSIS when relevant
+- Use any format you want - just be clear and specific
+- Reference knowledge by [ID] when updating or deleting
+- Only add NEW facts that aren't already in the knowledge base above
 """ if self.include_knowledge_update else ""
 
         return f"""IMPORTANT: Please think step by step before writing your code. Structure your response like this:
@@ -545,7 +564,8 @@ REASONING:
 
 CODE:
 [Your final Python code - define a function called 'run' that takes 'state' as parameter and returns ONE action string OR a list of actions.
-Add brief comments explaining your logic. Keep it simple and focused.]
+Add brief comments explaining your logic. Keep it simple and focused.
+IMPORTANT: All navigation decisions MUST be coordinate-based using state['player']['position']['x'] and state['player']['position']['y'] - compare current position with target coordinates from ANALYSIS to determine movement direction.]
 
 REQUIREMENTS:
 - Return action as a lowercase string OR list of lowercase strings
@@ -553,9 +573,8 @@ REQUIREMENTS:
 - Action sequences are limited to a maximum of 3 actions
 - Include helpful comments in your code"""
 
-    @staticmethod
-    def _default_example_code() -> str:
-        return '''EXAMPLE RESPONSE:
+    def _default_example_code(self) -> str:
+        return f'''EXAMPLE RESPONSE:
 
 ANALYSIS:
 The frame is the moving van interior at game start. There are no mandatory dialogues here before exiting. The exit trigger is on the right edge of the van interior. Holding right will deterministically walk the player to the exit and transition to the next scene.
@@ -583,7 +602,7 @@ def run(state):
 ```
 
 ---
-
+{f"""
 EXAMPLE WITH VISUAL OBSERVATION:
 
 ANALYSIS:
@@ -609,10 +628,8 @@ add_to_state_schema(
 )
 
 def run(state):
-    """
-    Policy for clock interaction with visual observation.
-    Uses VLM to check if clock UI is already open.
-    """
+    # Policy for clock interaction with visual observation.
+    # Uses VLM to check if clock UI is already open.
     # Access visual observation (VLM call happens here on first access)
     if state["is_clock_ui_open"]:
         # Clock UI is open, confirm the time
@@ -646,7 +663,7 @@ IMPORTANT NOTES ON VISUAL OBSERVATIONS:
 - Use visual observations for UI state, menu detection, NPC positions, or other visual-only info
 - Be specific in your vlm_prompt for better accuracy
 
----
+---""" if self.include_visual_observation_examples else ''}
 
 EXAMPLE WITH LOGGING:
 
@@ -1224,7 +1241,7 @@ Goal: {milestone_desc}"""
 
     def build_knowledge_base_section(self, knowledge_base: Any, limit: int = 20) -> str:
         """
-        Format knowledge base entries for LLM prompt
+        Format knowledge base entries for LLM prompt (with IDs for updating)
 
         Args:
             knowledge_base: KnowledgeBase instance
@@ -1242,21 +1259,25 @@ Goal: {milestone_desc}"""
         if not recent_entries:
             return "KNOWLEDGE BASE: Empty. You can add learnings with ADD_KNOWLEDGE: <sentence>"
 
-        lines = ["KNOWLEDGE BASE (learned facts):"]
-        for i, entry in enumerate(recent_entries, 1):
+        lines = ["KNOWLEDGE BASE (learned facts - you can reference these by ID):"]
+        for entry in recent_entries:
             # Handle both KnowledgeEntry objects and dicts
             if isinstance(entry, dict):
+                entry_id = entry['id']
                 content = entry['content']
                 step = entry['created_step']
-                milestone = entry['created_milestone']
+                updated_step = entry.get('updated_step')
             else:
+                entry_id = entry.id
                 content = entry.content
                 step = entry.created_step
-                milestone = entry.created_milestone
+                updated_step = entry.updated_step
 
-            # Shorten milestone name for readability
-            milestone_short = milestone.replace('story_', '')
-            lines.append(f"{i}. {content} [Step {step}]")
+            # Show ID in front, with update indicator if updated
+            if updated_step:
+                lines.append(f"[{entry_id}] {content} (created: step {step}, updated: step {updated_step})")
+            else:
+                lines.append(f"[{entry_id}] {content} (step {step})")
 
         return "\n".join(lines)
 
@@ -1463,9 +1484,30 @@ NOTE: Both 'state' and 'prev_action' variables are available in conditions.
 
         knowledge_section = """
 KNOWLEDGE_UPDATE:
-[If you learned something important that should be remembered for future runs, add it here:
-ADD_KNOWLEDGE: <one sentence describing the fact>
-Only add NEW facts that aren't already in the knowledge base above.]
+[If you learned something important that should be remembered for future runs, add or update knowledge:]
+
+Add new knowledge:
+  ADD_KNOWLEDGE: <sentence with any useful info - coordinates, locations, NPCs, items, etc.>
+
+Update existing knowledge by ID:
+  UPDATE_KNOWLEDGE: <ID> → <new sentence>
+
+Delete incorrect knowledge (optional):
+  DELETE_KNOWLEDGE: <ID>
+
+Examples:
+  ADD_KNOWLEDGE: The clock has been set
+  ADD_KNOWLEDGE: NPC trainer at (10, 5) in Route 103 facing down blocks path
+  ADD_KNOWLEDGE: Warp at coords (7, 8) in Littleroot Town goes to Player House 1F
+  UPDATE_KNOWLEDGE: kb_1234567890 → NPC trainer at (10, 5) in Route 103 was defeated, path now clear
+  UPDATE_KNOWLEDGE: kb_9876543210 → Warp (7, 8) Littleroot → House 1F spawns at (5, 7)
+  DELETE_KNOWLEDGE: kb_1111111111
+
+IMPORTANT:
+- Include coordinate information from VISUAL FRAME ANALYSIS when relevant
+- Use any format you want - just be clear and specific
+- Reference knowledge by [ID] when updating or deleting
+- Only add NEW facts that aren't already in the knowledge base above
 """ if self.config.include_knowledge_update else ""
 
         milestone_desc = main_milestone.get('description', 'Unknown milestone')
@@ -1476,21 +1518,54 @@ Only add NEW facts that aren't already in the knowledge base above.]
 IMPORTANT: Structure your response EXACTLY like this (use 'SECTION_NAME:' format with colon, NOT markdown headers):
 
 ANALYSIS:
-[Analyze what you see in the frame and current game state - what's happening? where are you? what should you be doing?
-IMPORTANT: Look carefully at the game image for objects (clocks, pokeballs, bags) and NPCs (people, trainers) that might not be shown on the map. NPCs appear as sprite characters and can block movement or trigger battles/dialogue. When you see them try determine their location (X,Y) on the map relative to the player and any objects. If there is a dialog box, read the dialog text carefully.
+[Provide comprehensive analysis of visual frames and game state]
+
+VISUAL FRAME ANALYSIS (⭐ Analyze CURRENT STATE screenshot first ⭐):
+1. Scene description: [Describe what you see - terrain type, environment (indoor/outdoor/town/route), buildings, UI elements, battle screen, menu, etc.]
+2. Player state: [Player's visual position on screen, sprite appearance, facing direction (up/down/left/right), any visible status indicators or effects]
+3. Dialog/Menu state: [Is there a dialog box visible? Menu open? Battle UI? What exact text is shown? Copy dialog text word-for-word if present]
+4. Objects visible: [List ALL visible objects - pokeballs, items, clocks, bags, signs, doors, stairs, NPCs, trainers, etc.]
+   - For EACH object found:
+     * Object type: [pokeball/item/clock/sign/door/etc.]
+     * Approximate coordinates: (X, Y) relative to player position OR absolute grid position if visible on map
+     * Additional details: [color, state, any distinguishing features]
+5. NPCs/Trainers: [List ALL visible NPCs, trainers, or people - they appear as sprite characters]
+   - For EACH NPC found:
+     * NPC type: [person/trainer/gym leader/rival/etc.]
+     * Approximate coordinates: (X, Y) relative to player OR absolute grid position
+     * Facing direction: [up/down/left/right if visible]
+     * Distance from player: [adjacent/nearby/far]
+     * Visual details: [clothing color, sprite appearance, any identifying features]
+6. Obstacles/Terrain: [Any blocking elements - walls, trees, water, ledges, tall grass, rocks, fences]
+
+TEMPORAL ANALYSIS (if multiple screenshots are provided):
+Review screenshots from CURRENT (newest) → OLDEST:
+- Position changes: [How did player position change across frames? Track movement pattern]
+- Dialog progression: [Did dialog text change? Advance? Repeat? Disappear?]
+- Object/NPC changes: [Did any objects or NPCs appear/disappear? Move?]
+- Action sequence effect: [What was the effect of recent actions? Movement successful? Dialog triggered? Battle started?]
+- Stuck detection: [Are the last 3+ screenshots visually identical? Same position + same dialog = STUCK]
+- Progress indicators: [What tangible progress was made? New area? Dialog advanced? Item obtained? Battle won?]
+- Pattern identification: [Any repeating visual patterns suggesting stuck loop or navigation issue?]
+
+SITUATION INFERENCE:
+Based on visual evidence from frames + state data, determine:
+- What just happened? [Infer recent event: area transition, NPC interaction started, dialog triggered, battle initiated, menu opened, item obtained, etc.]
+- What is happening now? [Current situation: in dialog, navigating, in battle, in menu, stuck at obstacle, etc.]
+- What should happen next? [Expected next step toward milestone: continue dialog, navigate to target, interact with NPC, enter building, etc.]
+- Critical blockers: [What is preventing progress? Wall? NPC blocking path? Wrong location? Dialog not advancing?]
 
 APPROACH EVALUATION:
-1. Current approach: [What strategy is the current/previous code using?]
-2. Alternative idea: [Propose ONE completely different approach to achieve the milestone. Maybe our previous assumption was wrong. For example, if navigation fails repeatedly, try BFS pathfinding or wall-following instead of simple movement.]
-3. Decision: [KEEP current approach | TRY alternative] because [explain your choice in 1 sentence]
+1. Current approach: [What strategy is the current/previous code using? Navigation method? Interaction logic? Decision criteria?]
+2. Alternative idea: [Propose ONE completely different approach to achieve the milestone. Consider: If navigation fails → try BFS pathfinding or wall-following. If dialog stuck → try different button sequence. If NPC blocking → try different route. Challenge previous assumptions.]
+3. Decision: [KEEP current approach | TRY alternative] because [explain choice in 1 sentence based on visual evidence]
 
-[Continue analysis below...]
-
-If EXECUTION LOGS section is shown above, review.
+If EXECUTION LOGS section is shown above, review:
 - What did the previous code log? What was it trying to do?
 - What insights can you gain from the logged messages?
 - Did the logs reveal any issues (e.g., repeated attempts, stuck situations, unexpected values)?
 - Use the logs to understand the previous code's decision-making process
+- Correlate log step numbers with screenshot step numbers for full context
 
 Check recent PREVIOUS ANALYSES. If similar failed attempt exists, QUOTE it:
   "[Step X] ..."
@@ -1540,7 +1615,8 @@ Precondition: state['player']['location'].find('2F') >= 0
 Success Condition: state['player']['position']['x'] == 5 and state['player']['position']['y'] == 1 and prev_action in == ['up', 'a']
 
 CODE:
-[Implement policy for current subtask]
+[Implement policy for current subtask.
+IMPORTANT: All navigation decisions MUST be coordinate-based using state['player']['position']['x'] and state['player']['position']['y'] - compare current position with target coordinates from VISUAL FRAME ANALYSIS to determine movement direction (dx>0→right, dx<0→left, dy>0→down, dy<0→up).]
 
 {f'''Note (Processing Visual Observations):
 You can query the screenshot for visual information using the built-in add_to_state_schema() function.

@@ -897,7 +897,7 @@ class CodeAgent:
 
     def _parse_and_update_knowledge(self, llm_response: str, current_milestone: str):
         """
-        Parse LLM response for ADD_KNOWLEDGE commands and update knowledge base
+        Parse LLM response for ADD_KNOWLEDGE, UPDATE_KNOWLEDGE, DELETE_KNOWLEDGE commands
 
         Args:
             llm_response: Full LLM response text
@@ -905,17 +905,59 @@ class CodeAgent:
         """
         for line in llm_response.split('\n'):
             line = line.strip()
+
+            # ADD_KNOWLEDGE: <content>
             if line.startswith("ADD_KNOWLEDGE:"):
-                # Extract content after "ADD_KNOWLEDGE:"
                 content = line.split("ADD_KNOWLEDGE:", 1)[1].strip()
                 if content:
-                    # Add to knowledge base with current step and milestone
-                    self.knowledge_base.add(
+                    entry_id = self.knowledge_base.add(
                         content=content,
                         step=self.step_count,
                         milestone=current_milestone
                     )
-                    print(f"📝 Knowledge added: {content}")
+                    print(f"📝 Knowledge added [{entry_id}]: {content}")
+
+            # UPDATE_KNOWLEDGE: <ID> → <new_content>
+            elif line.startswith("UPDATE_KNOWLEDGE:"):
+                rest = line.split("UPDATE_KNOWLEDGE:", 1)[1].strip()
+
+                # Support both → and ->
+                if "→" in rest:
+                    separator = "→"
+                elif "->" in rest:
+                    separator = "->"
+                else:
+                    print(f"⚠️ Invalid UPDATE_KNOWLEDGE format (missing → or ->): {rest}")
+                    continue
+
+                parts = rest.split(separator, 1)
+                if len(parts) == 2:
+                    entry_id = parts[0].strip()
+                    new_content = parts[1].strip()
+
+                    if entry_id and new_content:
+                        success = self.knowledge_base.update_by_id(
+                            entry_id=entry_id,
+                            new_content=new_content,
+                            step=self.step_count,
+                            milestone=current_milestone
+                        )
+                        if success:
+                            print(f"📝 Knowledge updated [{entry_id}]: {new_content}")
+                        else:
+                            print(f"⚠️ Knowledge ID not found: {entry_id}")
+                else:
+                    print(f"⚠️ Invalid UPDATE_KNOWLEDGE format: {rest}")
+
+            # DELETE_KNOWLEDGE: <ID>
+            elif line.startswith("DELETE_KNOWLEDGE:"):
+                entry_id = line.split("DELETE_KNOWLEDGE:", 1)[1].strip()
+                if entry_id:
+                    success = self.knowledge_base.delete_by_id(entry_id)
+                    if success:
+                        print(f"🗑️ Knowledge deleted [{entry_id}]")
+                    else:
+                        print(f"⚠️ Knowledge ID not found for deletion: {entry_id}")
 
     def _extract_analysis(self, response: str) -> str:
         """
