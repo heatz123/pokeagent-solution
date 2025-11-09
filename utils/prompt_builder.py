@@ -481,6 +481,7 @@ class CodePromptConfig:
     include_state_schema: bool = True
     include_knowledge_update: bool = True
     include_execution_logs: bool = True
+    include_visual_observation_examples: bool = False  # Show add_to_state_schema examples in subtask mode
 
     # Template strings (can be customized)
     system_instruction_template: str = field(default=None)
@@ -549,7 +550,7 @@ Add brief comments explaining your logic. Keep it simple and focused.]
 REQUIREMENTS:
 - Return action as a lowercase string OR list of lowercase strings
 - Valid actions: 'a', 'b', 'start', 'select', 'up', 'down', 'left', 'right', 'no_op'
-- Action sequences are limited to a maximum of 2 actions
+- Action sequences are limited to a maximum of 3 actions
 - Include helpful comments in your code"""
 
     @staticmethod
@@ -793,7 +794,7 @@ Notes on state structure:
 - Navigation strategy: Use visual image for NPCs/obstacles, ascii_map for spatial planning
 - 'battle_info' is only available during battles
 - game_state and dialog_text can be unreliable - trust the visual image when detecting dialogue
-- You can use action sequences (maximum 2 actions) like ['up', 'a'] to handle interactions and movements together
+- You can use action sequences (maximum 3 actions) like ['up', 'a'] to handle interactions and movements together
 """
 
 
@@ -867,7 +868,8 @@ class CodeAgentPromptBuilder:
 
         # 2. Visual note
         if self.config.include_visual_note:
-            sections.append(self.build_visual_note_section())
+            num_screenshots = kwargs.get('num_screenshots', 1)
+            sections.append(self.build_visual_note_section(num_screenshots))
             sections.append("")
 
         # 3. Current game state (SimpleAgent와 동일한 포맷)
@@ -941,9 +943,42 @@ class CodeAgentPromptBuilder:
         """시스템 지시사항 섹션"""
         return self.config.system_instruction_template
 
-    def build_visual_note_section(self) -> str:
-        """비주얼 정보 안내 섹션 (CodeAgent 전용)"""
-        return "VISUAL: You can see the current game screen in the attached image."
+    def build_visual_note_section(self, num_screenshots: int = 1) -> str:
+        """
+        비주얼 정보 안내 섹션 (CodeAgent 전용)
+
+        Args:
+            num_screenshots: Number of screenshots attached (1 or more)
+
+        Returns:
+            Visual note text describing the screenshots
+        """
+        if num_screenshots <= 1:
+            return "VISUAL: You can see the current game screen in the attached image."
+        else:
+            return f"""VISUAL OBSERVATIONS - READ IN ORDER:
+You will see {num_screenshots} screenshots in REVERSE chronological order (newest → oldest).
+
+⭐ Screenshot 1/{num_screenshots} is the CURRENT STATE ⭐
+  - This shows the present moment
+  - Use this for ALL current decisions (location, dialog, position)
+  - This is the MOST IMPORTANT screenshot
+
+📜 Screenshots 2-{num_screenshots} are HISTORY (recent → old)
+  - Screenshot 2 = 1 step ago
+  - Screenshot 3 = 2 steps ago
+  - Screenshot {num_screenshots} = {num_screenshots-1} steps ago (OLDEST)
+  - Use these to understand how you got to the current state
+  - Look for stuck patterns (same visuals repeating)
+
+FORMAT: Each screenshot is labeled as:
+- [CURRENT STATE ⭐] Screenshot 1/{num_screenshots} (Step X):
+- [History -N steps ago] Screenshot M/{num_screenshots} (Step Y):
+
+IMPORTANT:
+- ALWAYS analyze Screenshot 1 (CURRENT STATE) first!
+- Use the step numbers to correlate with the EXECUTION LOGS section
+- The screenshots are in REVERSE order - newest first!"""
 
     def build_game_state_section(self, formatted_state: str) -> str:
         """
@@ -1154,12 +1189,12 @@ When there is conflict between visual observation and state data, TRUST THE VISU
 Always verify critical information (dialog text, NPC positions, obstacles) from the screenshot.
 
 ACTION SPACE:
-Return ONE action string or a list of TWO actions:
+Return ONE action string or a list of up to THREE actions:
 - Movement: 'up', 'down', 'left', 'right' (tile-based)
 - Buttons: 'a' (confirm/interact), 'b' (cancel/back), 'start' (menu), 'select'
 - Special: 'no_op' (do nothing, useful when waiting)
 
-Examples: return 'a'  or  return ['up', 'a']
+Examples: return 'a'  or  return ['up', 'a']  or  return ['up', 'a', 'a']
 
 KEY MECHANICS:
 - Each action takes ~1 second to execute in game
@@ -1229,18 +1264,32 @@ Goal: {milestone_desc}"""
         """
         Format previous ANALYSIS sections for context
 
+        Supports both:
+        - Regular: (step_number, analysis_text)
+        - Summary: ("X-Y", summary_text) for step ranges
+
         Args:
-            analyses: List of (step, analysis_text) tuples
+            analyses: List of (step_info, analysis_text) tuples
+                     step_info can be int or str (for ranges like "1-50")
 
         Returns:
             Formatted string for prompt
         """
-        # Take last 20 (should already be limited, but safe guard)
-        display = analyses[-20:]
+        if not analyses:
+            return "PREVIOUS ANALYSES: None yet."
 
-        lines = [f"PREVIOUS ANALYSES (showing {len(display)} recent observations):"]
-        for step, text in display:
-            lines.append(f"\n[Step {step}]")
+        # Display all analyses (after summarization, should be 1-20 entries)
+        lines = [f"PREVIOUS ANALYSES (showing {len(analyses)} entries):"]
+
+        for step_info, text in analyses:
+            # Check if it's a summary (step_info is a range string like "1-50")
+            if isinstance(step_info, str) and '-' in step_info:
+                # It's a summary
+                lines.append(f"\n[Steps {step_info} Summary]")
+            else:
+                # Regular analysis
+                lines.append(f"\n[Step {step_info}]")
+
             lines.append(text.strip())
             lines.append("")  # Empty line between analyses for clarity
 
@@ -1428,7 +1477,14 @@ IMPORTANT: Structure your response EXACTLY like this (use 'SECTION_NAME:' format
 
 ANALYSIS:
 [Analyze what you see in the frame and current game state - what's happening? where are you? what should you be doing?
-IMPORTANT: Look carefully at the game image for objects (clocks, pokeballs, bags) and NPCs (people, trainers) that might not be shown on the map. NPCs appear as sprite characters and can block movement or trigger battles/dialogue. When you see them try determine their location (X,Y) on the map relative to the player and any objects.
+IMPORTANT: Look carefully at the game image for objects (clocks, pokeballs, bags) and NPCs (people, trainers) that might not be shown on the map. NPCs appear as sprite characters and can block movement or trigger battles/dialogue. When you see them try determine their location (X,Y) on the map relative to the player and any objects. If there is a dialog box, read the dialog text carefully.
+
+APPROACH EVALUATION:
+1. Current approach: [What strategy is the current/previous code using?]
+2. Alternative idea: [Propose ONE completely different approach to achieve the milestone. Maybe our previous assumption was wrong. For example, if navigation fails repeatedly, try BFS pathfinding or wall-following instead of simple movement.]
+3. Decision: [KEEP current approach | TRY alternative] because [explain your choice in 1 sentence]
+
+[Continue analysis below...]
 
 If EXECUTION LOGS section is shown above, review.
 - What did the previous code log? What was it trying to do?
@@ -1436,16 +1492,10 @@ If EXECUTION LOGS section is shown above, review.
 - Did the logs reveal any issues (e.g., repeated attempts, stuck situations, unexpected values)?
 - Use the logs to understand the previous code's decision-making process
 
-If ACTIONS FROM PREVIOUS CODE section is shown above, analyze.
-- Why did the previous code fail or get stuck?
-- Were the same actions repeated at the same position?
-- Did the code try to move into walls or NPCs?
-- What fundamental assumption was wrong?
-- What different approach should be tried?
-
 Check recent PREVIOUS ANALYSES. If similar failed attempt exists, QUOTE it:
   "[Step X] ..."
-We may use DIFFERENT subtask idea or code approach]
+We may use DIFFERENT subtask idea or code approach.
+If the last 3 steps did not change (position, location, or dialog), discard previous hypotheses and re-evaluate from the CURRENT screenshot and ascii_map only.]
 
 {knowledge_section}
 TASK_DECOMPOSITION:
@@ -1487,12 +1537,12 @@ Reasoning: The success condition was too loose - just reaching 2F isn't enough. 
 Decision: CREATE_OR_MODIFY
 Description: Move to clock and interact
 Precondition: state['player']['location'].find('2F') >= 0
-Success Condition: state['player']['position']['x'] == 5 and state['player']['position']['y'] == 1 and prev_action in [['up', 'a'], 'a']
+Success Condition: state['player']['position']['x'] == 5 and state['player']['position']['y'] == 1 and prev_action in == ['up', 'a']
 
 CODE:
 [Implement policy for current subtask]
 
-Note (Processing Visual Observations):
+{f'''Note (Processing Visual Observations):
 You can query the screenshot for visual information using the built-in add_to_state_schema() function.
 
 IMPORTANT: add_to_state_schema is a BUILT-IN function already available in your code environment.
@@ -1520,9 +1570,7 @@ add_to_state_schema(
 )
 
 def run(state):
-    \"\"\"
-    {task_desc}
-    \"\"\"
+    # {task_desc}
     # Accessing again uses cached result (no additional VLM call)
     if state["num_npcs"] > 0:
         return 'up'  # Avoid NPCs
@@ -1530,14 +1578,12 @@ def run(state):
     return 'right'  # Navigate
 ```
 
-Standard policy (no visual observations):
+Standard policy (no visual observations):''' if self.config.include_visual_observation_examples else 'Standard policy:'}
 ```python
 def run(state):
-    \"\"\"
-    {task_desc}
-    \"\"\"
+    # {task_desc}
     # Implementation
-    return action  # Single action string like 'up', 'down', 'left', 'right', 'a', 'b', or list of two actions like ['up', 'a']
+    return action  # Single action string like 'up', 'down', 'left', 'right', 'a', 'b', or list of up to three actions like ['up', 'a'] or ['up', 'a', 'a']
 ```
 
 Note (Using log() for debugging):
@@ -1564,11 +1610,11 @@ IMPORTANT: log is a BUILT-IN function already available in your code environment
         # 추가 파라미터들 (재사용 섹션용)
         execution_error: Optional[Dict[str, Any]] = None,
         previous_code: str = "",
-        previous_actions: Optional[List[Any]] = None,
         knowledge_base: Any = None,
         previous_analyses: Optional[List[Tuple[int, str]]] = None,
         execution_logs: Optional[List[Tuple[int, str]]] = None,
-        include_state_schema: bool = True
+        include_state_schema: bool = True,
+        num_screenshots: int = 1
     ) -> str:
         """
         Build unified prompt for subtask-based code generation
@@ -1584,7 +1630,6 @@ IMPORTANT: log is a BUILT-IN function already available in your code environment
             subtask_manager: SubtaskManager instance (optional)
             execution_error: Execution error info (optional)
             previous_code: Previous code (optional, for stuck situations)
-            previous_actions: Previous actions list (optional)
             knowledge_base: Knowledge base text (optional)
             previous_analyses: Previous ANALYSIS sections (optional)
             execution_logs: Execution logs from code runs (optional)
@@ -1604,7 +1649,7 @@ IMPORTANT: log is a BUILT-IN function already available in your code environment
         sections.append("")
 
         # 2. Visual note (재사용)
-        sections.append(self.build_visual_note_section())
+        sections.append(self.build_visual_note_section(num_screenshots))
         sections.append("")
 
         # 3. Main milestone (강화 - milestone 중요성 강조)
@@ -1661,12 +1706,7 @@ CRITICAL: This is your main objective. ALL subtasks must directly contribute to 
             sections.append(self.build_previous_code_section(previous_code))
             sections.append("")
 
-        # 11. Previous actions (재사용 - if available)
-        if previous_actions and len(previous_actions) > 0:
-            sections.append(self.build_previous_actions_section(previous_actions))
-            sections.append("")
-
-        # 11.5. Execution logs (재사용 - if available)
+        # 11. Execution logs (재사용 - if available)
         if self.config.include_execution_logs and execution_logs and len(execution_logs) > 0:
             sections.append(self.build_execution_logs_section(execution_logs))
             sections.append("")
@@ -1744,6 +1784,7 @@ CRITICAL: This is your main objective. ALL subtasks must directly contribute to 
 
         # 4. Format output
         lines = ["RECENT SUCCESSFUL SUBTASKS (time-ordered):"]
+        lines.append("⚠️ Do not completely trust these subtasks - success conditions are often incorrect or incomplete.")
         for item in recent:
             lines.append(f"  {item['description']}")
             if item.get('condition'):

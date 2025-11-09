@@ -481,6 +481,13 @@ def step_environment(actions_pressed):
                         env.memory_reader._cached_behaviors = None
                     if hasattr(env.memory_reader, '_cached_behaviors_map_key'):
                         env.memory_reader._cached_behaviors_map_key = None
+
+                    # Run 3 additional no-op frames to allow game to fully load new map
+                    # This prevents reading stale map data from the previous area
+                    logger.info("Running 3 no-op frames to allow map to load...")
+                    env.run_frame_with_buttons([])  # empty = no-op
+                    logger.info("Map loading wait complete")
+
                     # Set flag to trigger map stitcher update outside the lock
                     env.memory_reader._area_transition_detected = True
             except Exception as e:
@@ -1208,7 +1215,15 @@ async def get_comprehensive_state():
         # Dialog state is already correctly set by get_game_state()
         # No need to override - get_game_state() checks title, battle, menu, dialog in correct priority
         # Overriding here would incorrectly change menu/battle/title to "overworld"
-        
+
+        # Check and update milestones before returning state
+        # This ensures agent gets the most up-to-date milestone information
+        if env and hasattr(env, 'milestone_tracker'):
+            try:
+                env.check_and_update_milestones(state)
+            except Exception as e:
+                logger.debug(f"Error during milestone check in /state: {e}")
+
         # Include milestones for storyline objective auto-completion
         if env.milestone_tracker:
             state["milestones"] = env.milestone_tracker.milestones

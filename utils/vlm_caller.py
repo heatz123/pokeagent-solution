@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VLM caller for visual observations using Ollama
+VLM caller for visual observations using Ollama or Gemini
 Handles screenshot + prompt -> typed result
 """
 
@@ -8,13 +8,14 @@ import base64
 import io
 import json
 import time
+import os
 from typing import Any
 from PIL import Image
 
 
 class VLMCaller:
     """
-    Calls Ollama VLM to answer visual questions and coerces results to specified types
+    Calls Ollama or Gemini VLM to answer visual questions and coerces results to specified types
     """
 
     def __init__(self, model: str = "qwen3-vl:2b", keep_alive: int = -1):
@@ -22,11 +23,27 @@ class VLMCaller:
         Initialize VLM caller
 
         Args:
-            model: Ollama model name (e.g., "qwen3-vl:2b", "llava")
+            model: Model name (e.g., "qwen3-vl:2b" for Ollama, "gemini-2.5-flash-lite" for Gemini)
             keep_alive: How long to keep model in memory (-1 = indefinitely, 0 = unload immediately, N = seconds)
+                       Only used for Ollama models
         """
         self.model = model
         self.keep_alive = keep_alive
+
+        # Determine provider based on model name
+        if "gemini" in model.lower():
+            self.provider = "gemini"
+            # Initialize Gemini client
+            import google.generativeai as genai
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY environment variable not set")
+            genai.configure(api_key=api_key)
+            self.client = genai.GenerativeModel(model)
+            self.genai = genai
+        else:
+            self.provider = "ollama"
+            self.client = None
 
     def call(
         self,
@@ -53,15 +70,12 @@ class VLMCaller:
         # Build full prompt with type instruction
         full_prompt = self._build_typed_prompt(prompt, return_type)
 
-        # Convert screenshot to base64
-        screenshot_b64 = self._image_to_base64(screenshot)
-
         # Log request
-        print(f"  [VLM Request] model={self.model}, return_type={return_type.__name__}")
+        print(f"  [VLM Request] provider={self.provider}, model={self.model}, return_type={return_type.__name__}")
         print(f"  [VLM Prompt] {prompt[:100]}...")
 
-        # Call Ollama
-        response_text = self._call_ollama(full_prompt, screenshot_b64)
+        # Call VLM (provider-specific)
+        response_text = self._call_vlm(full_prompt, screenshot)
 
         # Parse and coerce result
         result = self._coerce_result(response_text, return_type)
@@ -107,33 +121,56 @@ Format your response as just the value, nothing else."""
         image.save(buffer, format='PNG')
         return base64.b64encode(buffer.getvalue()).decode()
 
-    def _call_ollama(self, prompt: str, screenshot_b64: str) -> str:
+    def _call_vlm(self, prompt: str, screenshot: Image.Image) -> str:
         """
-        Call Ollama API
+        Call VLM API (Ollama or Gemini)
 
         Args:
             prompt: Prompt text
-            screenshot_b64: Base64-encoded screenshot
+            screenshot: PIL Image
 
         Returns:
             Response text
         """
-        import ollama
+        if self.provider == "ollama":
+            # Ollama requires base64 image
+            import ollama
 
-        # Create client with explicit timeout (30 seconds)
-        client = ollama.Client(timeout=30.0)
+            screenshot_b64 = self._image_to_base64(screenshot)
 
-        response = client.chat(
-            model=self.model,
-            messages=[{
-                'role': 'user',
-                'content': prompt,
-                'images': [screenshot_b64]
-            }],
-            keep_alive=self.keep_alive
-        )
+            # Create client with explicit timeout (30 seconds)
+            client = ollama.Client(timeout=30.0)
 
-        return response['message']['content']
+            response = client.chat(
+                model=self.model,
+                messages=[{
+                    'role': 'user',
+                    'content': prompt,
+                    'images': [screenshot_b64]
+                }],
+                keep_alive=self.keep_alive
+            )
+
+            return response['message']['content']
+
+        elif self.provider == "gemini":
+            # Gemini uses PIL Image directly
+            content_parts = [prompt, screenshot]
+
+            response = self.client.generate_content(content_parts)
+
+            # Check for safety filter
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'finish_reason') and candidate.finish_reason == 12:
+                    print("  ⚠️ Gemini safety filter triggered, retrying with text-only...")
+                    # Retry with text only
+                    response = self.client.generate_content([prompt])
+
+            return response.text
+
+        else:
+            raise ValueError(f"Unsupported provider: {self.provider}")
 
     def _coerce_result(self, text: str, return_type: type) -> Any:
         """

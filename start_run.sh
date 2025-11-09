@@ -60,7 +60,7 @@ EOF
 # Start processes
 export USE_SUBTASKS=true
 export USE_KNOWLEDGE_BASE=false
-export VLM_MODEL="qwen3-vl:2b"
+export VLM_MODEL="gemini-2.5-flash-lite"
 bash start_all.sh $PORT $MODEL
 
 # Create latest symlink
