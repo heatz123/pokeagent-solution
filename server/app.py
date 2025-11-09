@@ -482,10 +482,13 @@ def step_environment(actions_pressed):
                     if hasattr(env.memory_reader, '_cached_behaviors_map_key'):
                         env.memory_reader._cached_behaviors_map_key = None
 
-                    # Run 3 additional no-op frames to allow game to fully load new map
+                    # Run 10 additional no-op frames to allow game to fully load new map
                     # This prevents reading stale map data from the previous area
-                    logger.info("Running 3 no-op frames to allow map to load...")
-                    env.run_frame_with_buttons([])  # empty = no-op
+                    # 10 frames @ 60fps = ~167ms, which satisfies the 150ms requirement
+                    # for map_bank/map_number to sync with actual tile data
+                    logger.info("Running 10 no-op frames to allow map to load...")
+                    for i in range(10):
+                        env.run_frame_with_buttons([])  # empty = no-op
                     logger.info("Map loading wait complete")
 
                     # Set flag to trigger map stitcher update outside the lock
