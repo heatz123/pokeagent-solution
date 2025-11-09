@@ -481,7 +481,7 @@ class CodePromptConfig:
     include_state_schema: bool = True
     include_knowledge_update: bool = True
     include_execution_logs: bool = True
-    include_previous_analyses: bool = True  # Show previous ANALYSIS sections for context
+    include_previous_analyses: bool = False  # Show previous ANALYSIS sections for context
     include_visual_observation_examples: bool = False  # Show add_to_state_schema examples in subtask mode
 
     # Template strings (can be customized)
@@ -541,9 +541,42 @@ IMPORTANT:
         return f"""IMPORTANT: Please think step by step before writing your code. Structure your response like this:
 
 ANALYSIS:
-- Analyze what you see in the frame and current game state - what's happening? where are you? what should you be doing?
-IMPORTANT: Look carefully at the game image for objects (clocks, pokeballs, bags) and NPCs (people, trainers) that might not be shown on the map. NPCs appear as sprite characters and can block movement or trigger battles/dialogue. When you see them try determine their location (X,Y) on the map relative to the player and any objects.
-- If the previous code resulted in a stuck situation, analyze why it got stuck. We may have to try a different approach.
+[Provide comprehensive analysis of visual frames and game state]
+
+VISUAL FRAME ANALYSIS (⭐ Analyze CURRENT STATE screenshot first ⭐):
+1. Scene description: [Describe what you see - terrain type, environment (indoor/outdoor/town/route), buildings, UI elements, battle screen, menu, etc.]
+2. Player state: [Player's visual position on screen, sprite appearance, facing direction (up/down/left/right), any visible status indicators or effects]
+3. Dialog/Menu state: [Is there a dialog box visible? Menu open? Battle UI? What exact text is shown? Copy dialog text word-for-word if present]
+4. Objects visible: [List ALL visible objects - pokeballs, items, clocks, bags, signs, doors, stairs, NPCs, trainers, etc.]
+   - For EACH object found:
+     * Object type: [pokeball/item/clock/sign/door/etc.]
+     * Approximate coordinates: (X, Y) relative to player position OR absolute grid position if visible on map
+     * Additional details: [color, state, any distinguishing features]
+5. NPCs/Trainers: [List ALL visible NPCs, trainers, or people - they appear as sprite characters]
+   - For EACH NPC found:
+     * NPC type: [person/trainer/gym leader/rival/etc.]
+     * Approximate coordinates: (X, Y) relative to player OR absolute grid position
+     * Facing direction: [up/down/left/right if visible]
+     * Distance from player: [adjacent/nearby/far]
+     * Visual details: [clothing color, sprite appearance, any identifying features]
+6. Obstacles/Terrain: [Any blocking elements - walls, trees, water, ledges, tall grass, rocks, fences]
+
+TEMPORAL ANALYSIS (if multiple screenshots are provided):
+Review screenshots from CURRENT (newest) → OLDEST:
+- Position changes: [How did player position change across frames? Track movement pattern]
+- Dialog progression: [Did dialog text change? Advance? Repeat? Disappear?]
+- Object/NPC changes: [Did any objects or NPCs appear/disappear? Move?]
+- Action sequence effect: [What was the effect of recent actions? Movement successful? Dialog triggered? Battle started?]
+- Stuck detection: [Are the last 3+ screenshots visually identical? Same position + same dialog = STUCK]
+- Progress indicators: [What tangible progress was made? New area? Dialog advanced? Item obtained? Battle won?]
+- Pattern identification: [Any repeating visual patterns suggesting stuck loop or navigation issue?]
+
+SITUATION INFERENCE:
+Based on visual evidence from frames + state data, determine:
+- What just happened? [Infer recent event: area transition, NPC interaction started, dialog triggered, battle initiated, menu opened, item obtained, etc.]
+- What is happening now? [Current situation: in dialog, navigating, in battle, in menu, stuck at obstacle, etc.]
+- What should happen next? [Expected next step toward milestone: continue dialog, navigate to target, interact with NPC, enter building, etc.]
+- Critical blockers: [What is preventing progress? Wall? NPC blocking path? Wrong location? Dialog not advancing?]
 
 OBJECTIVES:
 [Review the current milestone and your progress. What is the immediate goal? What steps are needed to reach the next milestone?]
@@ -1169,7 +1202,7 @@ KEY MECHANICS:
 ID: {milestone_id}
 Goal: {milestone_desc}"""
 
-    def build_knowledge_base_section(self, knowledge_base: Any, limit: int = 20) -> str:
+    def build_knowledge_base_section(self, knowledge_base: Any, limit: int = 100) -> str:
         """
         Format knowledge base entries for LLM prompt (with IDs for updating)
 

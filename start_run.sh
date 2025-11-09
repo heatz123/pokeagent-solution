@@ -58,8 +58,9 @@ cat > run_info.json <<EOF
 EOF
 
 # Start processes
-export USE_SUBTASKS=true
-export USE_KNOWLEDGE_BASE=false
+export USE_SUBTASKS=false
+export USE_KNOWLEDGE_BASE=true
+# export VLM_MODEL="gemini-2.5-flash-lite"
 export VLM_MODEL="gemini-2.5-flash-lite"
 bash start_all.sh $PORT $MODEL
 
