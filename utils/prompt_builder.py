@@ -481,6 +481,7 @@ class CodePromptConfig:
     include_state_schema: bool = True
     include_knowledge_update: bool = True
     include_execution_logs: bool = True
+    include_previous_analyses: bool = True  # Show previous ANALYSIS sections for context
     include_visual_observation_examples: bool = False  # Show add_to_state_schema examples in subtask mode
 
     # Template strings (can be customized)
@@ -511,7 +512,7 @@ Based on the current game frame and state information, think through your next m
 
         knowledge_section = """
 KNOWLEDGE_UPDATE:
-[If you learned something important that should be remembered for future runs, add or update knowledge:]
+[Record important spatial and gameplay information discovered during this run:]
 
 Add new knowledge:
   ADD_KNOWLEDGE: <sentence with any useful info - coordinates, locations, NPCs, items, etc.>
@@ -539,15 +540,6 @@ IMPORTANT:
 
         return f"""IMPORTANT: Please think step by step before writing your code. Structure your response like this:
 
-CRITICAL_EVALUATION:
-[Before proceeding, critically evaluate your approach:
-1. Are we meeting the main milestone requirements?
-   - Review the current milestone description and your progress toward it
-   - Is our approach aligned with milestone goals?
-2. Is the current approach working?
-   - Review recent ANALYSIS sections - are we stuck in repeated failed attempts?
-   - If you see patterns of failure, what fundamentally needs to change?]
-
 ANALYSIS:
 - Analyze what you see in the frame and current game state - what's happening? where are you? what should you be doing?
 IMPORTANT: Look carefully at the game image for objects (clocks, pokeballs, bags) and NPCs (people, trainers) that might not be shown on the map. NPCs appear as sprite characters and can block movement or trigger battles/dialogue. When you see them try determine their location (X,Y) on the map relative to the player and any objects.
@@ -573,8 +565,9 @@ REQUIREMENTS:
 - Action sequences are limited to a maximum of 3 actions
 - Include helpful comments in your code"""
 
-    def _default_example_code(self) -> str:
-        return f'''EXAMPLE RESPONSE:
+    @staticmethod
+    def _default_example_code() -> str:
+        return '''EXAMPLE RESPONSE:
 
 ANALYSIS:
 The frame is the moving van interior at game start. There are no mandatory dialogues here before exiting. The exit trigger is on the right edge of the van interior. Holding right will deterministically walk the player to the exit and transition to the next scene.
@@ -602,69 +595,6 @@ def run(state):
 ```
 
 ---
-{f"""
-EXAMPLE WITH VISUAL OBSERVATION:
-
-ANALYSIS:
-Looking at the frame, I can see we're in the bedroom with a clock on the wall. The player is currently at position (5, 2). The clock appears to be one tile north of the player. I need to check if the clock UI is already open to decide whether to move or interact.
-
-OBJECTIVES:
-Milestone: "Set the clock"
-Need to interact with the clock to open its UI and set the time.
-
-PLAN:
-Use visual observation to check if clock UI is open. If not open, move up to the clock and interact. If already open, press A to confirm.
-
-REASONING:
-The visual frame shows important UI state that may not be reflected in the text state. By querying the VLM, I can make more informed decisions about whether to navigate or interact.
-
-CODE:
-```python
-# Register visual observation for clock UI state
-add_to_state_schema(
-    key="is_clock_ui_open",
-    vlm_prompt="Is the clock setting UI currently visible on screen? Look for any menus, dialogs or interfaces related to setting time.",
-    return_type=bool
-)
-
-def run(state):
-    # Policy for clock interaction with visual observation.
-    # Uses VLM to check if clock UI is already open.
-    # Access visual observation (VLM call happens here on first access)
-    if state["is_clock_ui_open"]:
-        # Clock UI is open, confirm the time
-        return 'a'
-    else:
-        # Clock UI not open, navigate and interact
-        player_x = state['player']['position']['x']
-        player_y = state['player']['position']['y']
-
-        # Check if we're at the right position (5, 2)
-        if player_x == 5 and player_y == 2:
-            # We're right below the clock, move up and interact
-            return ['up', 'a']
-        else:
-            # Navigate to clock position first
-            if player_x < 5:
-                return 'right'
-            elif player_x > 5:
-                return 'left'
-            elif player_y < 2:
-                return 'down'
-            else:
-                return 'up'
-```
-
-IMPORTANT NOTES ON VISUAL OBSERVATIONS:
-- Use add_to_state_schema() BEFORE the run() function to register visual queries
-- Visual queries are cached per step (multiple accesses to state["key"] = one VLM call)
-- Use sparingly as VLM calls add 1-2 seconds latency per unique query
-- Prefer using state dict data when available (coordinates, location, etc.)
-- Use visual observations for UI state, menu detection, NPC positions, or other visual-only info
-- Be specific in your vlm_prompt for better accuracy
-
----""" if self.include_visual_observation_examples else ''}
-
 EXAMPLE WITH LOGGING:
 
 ANALYSIS:
@@ -903,8 +833,8 @@ class CodeAgentPromptBuilder:
             sections.append(self.build_knowledge_base_section(knowledge_base))
             sections.append("")
 
-        # 5.5. Previous analyses (if available)
-        if previous_analyses and len(previous_analyses) > 0:
+        # 5.5. Previous analyses (if available and enabled)
+        if self.config.include_previous_analyses and previous_analyses and len(previous_analyses) > 0:
             sections.append(self.build_previous_analyses_section(previous_analyses))
             sections.append("")
 
@@ -1484,7 +1414,7 @@ NOTE: Both 'state' and 'prev_action' variables are available in conditions.
 
         knowledge_section = """
 KNOWLEDGE_UPDATE:
-[If you learned something important that should be remembered for future runs, add or update knowledge:]
+[Record important spatial and gameplay information discovered during this run:]
 
 Add new knowledge:
   ADD_KNOWLEDGE: <sentence with any useful info - coordinates, locations, NPCs, items, etc.>
@@ -1767,8 +1697,8 @@ CRITICAL: This is your main objective. ALL subtasks must directly contribute to 
             sections.append(self.build_knowledge_base_section(knowledge_base))
             sections.append("")
 
-        # 8.5. Previous analyses (재사용 - if available)
-        if previous_analyses and len(previous_analyses) > 0:
+        # 8.5. Previous analyses (재사용 - if available and enabled)
+        if self.config.include_previous_analyses and previous_analyses and len(previous_analyses) > 0:
             sections.append(self.build_previous_analyses_section(previous_analyses))
             sections.append("")
 
