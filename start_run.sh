@@ -23,8 +23,8 @@ PORT=${2:-8000}
 if [ "$LOCAL_MODE" = true ]; then
     echo "🏃 Starting local run (model=$MODEL, port=$PORT)"
     cd "$PROJECT_DIR"
-    export USE_SUBTASKS=true
-    export USE_KNOWLEDGE_BASE=false
+    export USE_SUBTASKS=false
+    export USE_KNOWLEDGE_BASE=true
     bash start_all.sh $PORT $MODEL
     exit 0
 fi
@@ -61,7 +61,7 @@ EOF
 export USE_SUBTASKS=false
 export USE_KNOWLEDGE_BASE=true
 # export VLM_MODEL="gemini-2.5-flash-lite"
-export VLM_MODEL="gemini-2.5-flash-lite"
+export MODEL=qwen3-vl:8b-instruct-q4_K_M
 bash start_all.sh $PORT $MODEL
 
 # Create latest symlink

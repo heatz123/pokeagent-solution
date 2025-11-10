@@ -115,6 +115,59 @@
             color: #ffff33;
         }
 
+        .validation-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 3px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .validation-verified {
+            background-color: rgba(51, 255, 51, 0.2);
+            border: 1px solid #33ff33;
+            color: #33ff33;
+        }
+
+        .validation-suspicious {
+            background-color: rgba(255, 255, 51, 0.2);
+            border: 1px solid #ffff33;
+            color: #ffff33;
+        }
+
+        .validation-invalid {
+            background-color: rgba(255, 97, 119, 0.2);
+            border: 1px solid #ff6177;
+            color: #ff6177;
+        }
+
+        .validation-details {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.3);
+            border-left: 3px solid #666;
+            font-size: 14px;
+        }
+
+        .validation-details.verified {
+            border-left-color: #33ff33;
+        }
+
+        .validation-details.suspicious {
+            border-left-color: #ffff33;
+        }
+
+        .validation-details.invalid {
+            border-left-color: #ff6177;
+        }
+
+        .validation-reasoning {
+            color: #aaa;
+            margin-top: 5px;
+            font-style: italic;
+        }
+
         .empty-state {
             text-align: center;
             color: #666;
@@ -254,9 +307,39 @@
                     const timestamp = new Date(entry.created_timestamp).toLocaleString();
                     const milestoneShort = entry.created_milestone.replace('story_', '');
 
+                    // Build validation badge and details
+                    let validationBadge = '';
+                    let validationDetails = '';
+                    if (entry.validation) {
+                        const status = entry.validation.status;
+                        const statusEmoji = status === 'verified' ? '✅' :
+                                          status === 'suspicious' ? '⚠️' :
+                                          status === 'invalid' ? '❌' : '❓';
+                        const statusText = status.toUpperCase();
+
+                        validationBadge = `<span class="validation-badge validation-${status}">${statusEmoji} ${statusText}</span>`;
+
+                        const score = entry.validation.validity_score !== undefined ?
+                                    entry.validation.validity_score.toFixed(2) : 'N/A';
+                        const reasoning = escapeHtml(entry.validation.reasoning || 'No reasoning provided');
+                        const validatedTime = entry.validation.validated_timestamp ?
+                                            new Date(entry.validation.validated_timestamp).toLocaleString() : 'N/A';
+
+                        validationDetails = `
+                            <div class="validation-details ${status}">
+                                <div><strong>Validity Score:</strong> ${score}</div>
+                                <div><strong>Validated:</strong> ${validatedTime}</div>
+                                <div class="validation-reasoning">"${reasoning}"</div>
+                            </div>
+                        `;
+                    }
+
                     html += `
                         <div class="knowledge-entry">
-                            <div class="knowledge-content">${escapeHtml(entry.content)}</div>
+                            <div class="knowledge-content">
+                                ${escapeHtml(entry.content)}
+                                ${validationBadge}
+                            </div>
                             <div class="knowledge-meta">
                                 <div class="meta-item">
                                     <span class="meta-label">Step:</span>
@@ -275,6 +358,7 @@
                                     <span class="meta-value">${entry.id}</span>
                                 </div>
                             </div>
+                            ${validationDetails}
                         </div>
                     `;
                 });

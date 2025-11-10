@@ -3,8 +3,8 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-export USE_SUBTASKS=true
-export USE_KNOWLEDGE_BASE=false
+export USE_SUBTASKS=false
+export USE_KNOWLEDGE_BASE=true
 
 # Arguments
 SERVER_PORT=${1:-8000}  # 기본값 8000
@@ -42,9 +42,12 @@ sleep 2
 echo "Starting client..."
 nohup /home/heatz123/anaconda3/envs/pokeagent/bin/python3 code_client.py --port $SERVER_PORT --model $MODEL --delay 1.0 > client_${SERVER_PORT}.log 2>&1 &
 
+echo "Starting meta-agent daemon..."
+nohup /home/heatz123/anaconda3/envs/pokeagent/bin/python3 meta_agent_daemon.py --interval 30 --max-validations 20 > meta_agent_${SERVER_PORT}.log 2>&1 &
+
 echo ""
 echo "✅ All processes started!"
-echo "Logs: server_${SERVER_PORT}.log, frame_server_${FRAME_PORT}.log, client_${SERVER_PORT}.log"
+echo "Logs: server_${SERVER_PORT}.log, frame_server_${FRAME_PORT}.log, client_${SERVER_PORT}.log, meta_agent_${SERVER_PORT}.log"
 echo ""
-ps aux | grep -E "(server\.app|frame_server|code_client)" | grep -v grep
+ps aux | grep -E "(server\.app|frame_server|code_client|meta_agent_daemon)" | grep -v grep
 

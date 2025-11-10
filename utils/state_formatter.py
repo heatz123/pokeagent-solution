@@ -284,7 +284,7 @@ def convert_state_to_dict(state_data):
     Returns a dict (not JSON string) for efficiency.
 
     Args:
-        state_data (dict): The comprehensive state from /state endpoint
+        state_data (dict): The comprehensive state from /state endpoint (includes prev_action)
 
     Returns:
         dict: Structured state data
@@ -316,7 +316,8 @@ def convert_state_to_dict(state_data):
             "current_map": map_data.get('current_map'),
             "player_coords": map_data.get('player_coords', {})
         },
-        "milestones": state_data.get('milestones', {})
+        "milestones": state_data.get('milestones', {}),
+        "prev_action": state_data.get('prev_action', 'no_op')
     }
 
     # Add movement preview if in overworld (not in battle or title)

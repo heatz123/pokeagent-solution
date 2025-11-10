@@ -119,14 +119,13 @@ class SubtaskManager:
         # Clear file for web display
         self._save_current_subtask_to_file()
 
-    def evaluate_condition(self, condition_text: str, state: Dict[str, Any], prev_action: str = None):
+    def evaluate_condition(self, condition_text: str, state: Dict[str, Any]):
         """
         Evaluate a condition expression safely
 
         Args:
             condition_text: Python expression string (e.g., "state['player']['location'].find('2F') >= 0")
-            state: Current game state dict
-            action: Last action taken (optional)
+            state: Current game state dict (includes prev_action field)
 
         Returns:
             tuple: (success: bool, result: bool, error_msg: str)
@@ -165,8 +164,7 @@ class SubtaskManager:
             # Namespace with built-in functions enabled
             namespace = {
                 "__builtins__": __builtins__,
-                "state": state,
-                "prev_action": prev_action
+                "state": state
             }
 
             result = eval(cleaned_condition, namespace)
@@ -177,7 +175,7 @@ class SubtaskManager:
             logger.warning(f"Condition evaluation failed: {error_msg}")
             logger.debug(f"  Condition: {condition_text}")
             logger.debug(f"  State keys: {list(state.keys()) if state else 'None'}")
-            logger.debug(f"  Prev action: {prev_action}")
+            logger.debug(f"  Prev action: {state.get('prev_action', 'no_op') if state else 'no_op'}")
             return (False, False, error_msg)  # Evaluation failed
 
     def save_state(self, milestone_id: str):
@@ -239,7 +237,13 @@ class SubtaskManager:
         try:
             # Create check function that evaluates success_condition
             def check_fn(state, action):
-                return self.evaluate_condition(subtask['success_condition'], state)
+                # Add prev_action to state (same pattern as agent.step())
+                state["prev_action"] = action if action else "no_op"
+
+                # Convert raw game state to formatted state (same format as code execution)
+                from utils.state_formatter import convert_state_to_dict
+                formatted_state = convert_state_to_dict(state)
+                return self.evaluate_condition(subtask['success_condition'], formatted_state)[1]
 
             # Register with milestone manager
             self.milestone_manager.add_custom_milestone(

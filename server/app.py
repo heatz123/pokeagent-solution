@@ -482,12 +482,12 @@ def step_environment(actions_pressed):
                     if hasattr(env.memory_reader, '_cached_behaviors_map_key'):
                         env.memory_reader._cached_behaviors_map_key = None
 
-                    # Run 10 additional no-op frames to allow game to fully load new map
+                    # Run 20 additional no-op frames to allow game to fully load new map
                     # This prevents reading stale map data from the previous area
-                    # 10 frames @ 60fps = ~167ms, which satisfies the 150ms requirement
-                    # for map_bank/map_number to sync with actual tile data
-                    logger.info("Running 10 no-op frames to allow map to load...")
-                    for i in range(10):
+                    # 20 frames @ 60fps = ~333ms, which gives extra time for map buffer
+                    # to fully stabilize (not just map_bank/map_number sync)
+                    logger.info("Running 20 no-op frames to allow map to load...")
+                    for i in range(100):
                         env.run_frame_with_buttons([])  # empty = no-op
                     logger.info("Map loading wait complete")
 
