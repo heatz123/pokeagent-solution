@@ -146,6 +146,11 @@ class CodeAgent:
         self.screenshot_history = []  # List of (step_count, frame) tuples
         self.max_screenshot_history = 100  # Keep last 100 to prevent memory issues
 
+        # Load tools from tools/ directory (loaded once at init, reloaded on code generation)
+        from utils.tool_loader import load_tools
+        self.tools = load_tools('tools')
+        print(f"📦 Loaded {len(self.tools)} tools: {list(self.tools.keys())}")
+
         # Register custom milestones
         self._register_custom_milestones()
 
@@ -165,6 +170,9 @@ class CodeAgent:
             {'action': 'up'} or {'action': ['up', 'a']}
         """
         self.step_count += 1
+
+        # Add prev_action to game_state immediately (single source of truth)
+        game_state["prev_action"] = self._last_action if self._last_action else "no_op"
 
         try:
             # 1. Get milestone info (common)
@@ -287,6 +295,9 @@ class CodeAgent:
             # 5. Execute code (common)
             action = self._execute_code(code, game_state)
 
+            # Update last action immediately after execution (before any errors can occur)
+            self._last_action = action
+
             if self.use_subtasks:
                 print(f"✅ Action: {action}")
 
@@ -299,8 +310,6 @@ class CodeAgent:
             position = player.get('position', {})
             pos_tuple = (position.get('x'), position.get('y'))
             self.actions_since_last_generation.append((pos_tuple, action))
-
-            self._last_action = action
 
             # Non-subtask specific: reset stuck detector
             if not self.use_subtasks and need_new_code:
@@ -344,6 +353,11 @@ class CodeAgent:
             str: Generated code (non-subtask mode)
             tuple: (response_text, parsed_dict) (subtask mode)
         """
+        # Reload tools when generating new code (picks up file changes!)
+        from utils.tool_loader import load_tools
+        self.tools = load_tools('tools', force_reload=True)
+        print(f"🔄 Reloaded {len(self.tools)} tools for new code generation")
+
         # Common preparations
         previous_actions = self.actions_since_last_generation.copy()
         self.actions_since_last_generation = []
@@ -351,7 +365,6 @@ class CodeAgent:
         # Convert and filter state for LLM
         formatted = convert_state_to_dict(game_state)
         filtered = filter_state_for_llm(formatted)
-        state_text = json.dumps(filtered, indent=2, default=str)
 
         # Get recent screenshots (returns list of (step, frame) tuples)
         # Fixed to last 10 screenshots for consistency across all providers
@@ -395,7 +408,7 @@ class CodeAgent:
             previous_code_raw = self.last_generated_code if is_stuck else ""
 
             prompt = self.prompt_builder.build_prompt(
-                formatted_state=state_text,
+                formatted_state=filtered,
                 next_milestone_info=next_milestone_info,
                 current_subtask=self.subtask_manager.get_current_subtask() if self.use_subtasks else None,
                 stuck_warning=stuck_warning,
@@ -427,7 +440,7 @@ class CodeAgent:
 
         # Knowledge base update (common for both modes)
         if self.use_knowledge_base:
-            self._parse_and_update_knowledge(response, current_milestone)
+            self._parse_and_update_knowledge(response, current_milestone, game_state)
 
         # Extract and store ANALYSIS section (common for both modes)
         analysis_text = self._extract_analysis(response)
@@ -734,10 +747,11 @@ class CodeAgent:
                 """
                 step_logs.append(str(message))
 
-            # Create execution environment with add_to_state_schema and log
+            # Create execution environment with add_to_state_schema, log, and tools
             exec_globals = {
                 'add_to_state_schema': add_to_state_schema,
-                'log': log
+                'log': log,
+                **self.tools  # Inject cached tool functions (reloaded on code generation)
             }
 
             # Execute code with 15-second timeout
@@ -895,29 +909,46 @@ class CodeAgent:
 
             return 'no_op'  # No-op action on error (don't make things worse)
 
-    def _parse_and_update_knowledge(self, llm_response: str, current_milestone: str):
+    def _parse_and_update_knowledge(self, llm_response: str, current_milestone: str, game_state: dict):
         """
         Parse LLM response for ADD_KNOWLEDGE, UPDATE_KNOWLEDGE, DELETE_KNOWLEDGE commands
 
         Args:
             llm_response: Full LLM response text
             current_milestone: Current milestone ID for metadata
+            game_state: Current game state (for evidence)
         """
         for line in llm_response.split('\n'):
             line = line.strip()
 
-            # ADD_KNOWLEDGE: <content>
+            # ADD_KNOWLEDGE: <content> [EVIDENCE: <text>]
             if line.startswith("ADD_KNOWLEDGE:"):
-                content = line.split("ADD_KNOWLEDGE:", 1)[1].strip()
+                # Parse content and evidence
+                if "[EVIDENCE:" in line:
+                    parts = line.split("[EVIDENCE:", 1)
+                    content = parts[0].replace("ADD_KNOWLEDGE:", "").strip()
+                    evidence_text = parts[1].rstrip("]").strip()
+                else:
+                    content = line.split("ADD_KNOWLEDGE:", 1)[1].strip()
+                    evidence_text = ""
+
                 if content:
+                    # Filter state for evidence
+                    evidence_state = self._filter_state_for_evidence(game_state)
+
                     entry_id = self.knowledge_base.add(
                         content=content,
                         step=self.step_count,
-                        milestone=current_milestone
+                        milestone=current_milestone,
+                        evidence_text=evidence_text,
+                        evidence_screenshot=game_state.get('frame'),
+                        evidence_state=evidence_state
                     )
                     print(f"📝 Knowledge added [{entry_id}]: {content}")
+                    if evidence_text:
+                        print(f"   Evidence: {evidence_text}")
 
-            # UPDATE_KNOWLEDGE: <ID> → <new_content>
+            # UPDATE_KNOWLEDGE: <ID> → <new_content> [EVIDENCE: <text>]
             elif line.startswith("UPDATE_KNOWLEDGE:"):
                 rest = line.split("UPDATE_KNOWLEDGE:", 1)[1].strip()
 
@@ -933,17 +964,34 @@ class CodeAgent:
                 parts = rest.split(separator, 1)
                 if len(parts) == 2:
                     entry_id = parts[0].strip()
-                    new_content = parts[1].strip()
+                    content_and_evidence = parts[1].strip()
+
+                    # Parse new content and evidence
+                    if "[EVIDENCE:" in content_and_evidence:
+                        content_parts = content_and_evidence.split("[EVIDENCE:", 1)
+                        new_content = content_parts[0].strip()
+                        evidence_text = content_parts[1].rstrip("]").strip()
+                    else:
+                        new_content = content_and_evidence
+                        evidence_text = None
 
                     if entry_id and new_content:
+                        # Filter state for evidence if provided
+                        evidence_state = self._filter_state_for_evidence(game_state) if evidence_text else None
+
                         success = self.knowledge_base.update_by_id(
                             entry_id=entry_id,
                             new_content=new_content,
                             step=self.step_count,
-                            milestone=current_milestone
+                            milestone=current_milestone,
+                            evidence_text=evidence_text,
+                            evidence_screenshot=game_state.get('frame') if evidence_text else None,
+                            evidence_state=evidence_state
                         )
                         if success:
                             print(f"📝 Knowledge updated [{entry_id}]: {new_content}")
+                            if evidence_text:
+                                print(f"   Evidence: {evidence_text}")
                         else:
                             print(f"⚠️ Knowledge ID not found: {entry_id}")
                 else:
@@ -958,6 +1006,24 @@ class CodeAgent:
                         print(f"🗑️ Knowledge deleted [{entry_id}]")
                     else:
                         print(f"⚠️ Knowledge ID not found for deletion: {entry_id}")
+
+    def _filter_state_for_evidence(self, game_state: dict) -> dict:
+        """
+        Filter game state to keep only essential info for evidence
+
+        Args:
+            game_state: Full game state
+
+        Returns:
+            Filtered state dict
+        """
+        from utils.state_formatter import convert_state_to_dict, filter_state_for_llm
+
+        # Convert and filter state (same as LLM sees)
+        formatted = convert_state_to_dict(game_state)
+        filtered = filter_state_for_llm(formatted)
+
+        return filtered
 
     def _extract_analysis(self, response: str) -> str:
         """
@@ -1017,14 +1083,14 @@ class CodeAgent:
             # Single actions don't count
             return False
 
-        # Add to milestone manager
-        self.milestone_manager.add_custom_milestone(
-            milestone_id="CLOCK_INTERACT",
-            description="From position (5,2) in player bedroom, execute action sequence ['up', 'a'] to move up to the clock and interact with it",
-            insert_after="PLAYER_BEDROOM",
-            check_fn=check_clock_interact,
-            category="custom"
-        )
+        # # Add to milestone manager
+        # self.milestone_manager.add_custom_milestone(
+        #     milestone_id="CLOCK_INTERACT",
+        #     description="From position (5,2) in player bedroom, execute action sequence ['up', 'a'] to move up to the clock and interact with it",
+        #     insert_after="PLAYER_BEDROOM",
+        #     check_fn=check_clock_interact,
+        #     category="custom"
+        # )
 
         # Example: Leave the house (same condition as CLOCK_SET)
         def check_leave_house(game_state, action):
@@ -1045,13 +1111,46 @@ class CodeAgent:
                     "HOUSE" not in location_upper and
                     "LAB" not in location_upper)
 
+        # # Add to milestone manager
+        # self.milestone_manager.add_custom_milestone(
+        #     milestone_id="LEAVE_HOUSE",
+        #     description="Leave the house and return to Littleroot Town (outside)",
+        #     insert_after="CLOCK_INTERACT",
+        #     check_fn=check_leave_house,
+        #     category="custom"
+        # )
+
+        # May interaction on Route 103
+        def check_may_interaction(game_state, action):
+            """
+            Check if May interaction/battle happened on Route 103:
+            - Must be on Route 103
+            - Dialog text contains 'MAY' or battle-related keywords
+
+            Note: This is a dialog-based check, action parameter is not used.
+            """
+            # Check location first
+            player = game_state.get("player", {})
+            location = player.get("location", "")
+            location_upper = str(location).upper()
+
+            # Must be on Route 103
+            if not "ROUTE 103" in location_upper:
+                return False
+
+            # Check dialog text for May or battle keywords
+            dialog_text = game_state.get("game", {}).get("dialog_text") or ""
+
+            # Check for May's name or battle-related text
+            return "MAY: I think I know" in dialog_text
+
         # Add to milestone manager
         self.milestone_manager.add_custom_milestone(
-            milestone_id="LEAVE_HOUSE",
-            description="Leave the house and return to Littleroot Town (outside)",
-            insert_after="CLOCK_INTERACT",
-            check_fn=check_leave_house,
-            category="custom"
+            milestone_id="MAY_ROUTE103_INTERACTION",
+            description="Interact with May on Route 103 (dialog contains MAY, BATTLE, or TRAINER keywords)",
+            insert_after="ROUTE_103",
+            check_fn=check_may_interaction,
+            category="dialog"
         )
 
         # Pokedex dialog confirmation
@@ -1073,7 +1172,7 @@ class CodeAgent:
                 return False
 
             # Check dialog text
-            dialog_text = game_state.get("game", {}).get("dialog_text", "")
+            dialog_text = game_state.get("game", {}).get("dialog_text") or ""
             dialog_upper = str(dialog_text).upper()
 
             # Check multiple variants (é with acute accent, regular e, etc.)
@@ -1088,17 +1187,17 @@ class CodeAgent:
         self.milestone_manager.add_custom_milestone(
             milestone_id="POKEDEX_DIALOG_CONFIRMED",
             description="Pokedex dialog text appeared in Birch's lab (POKEDEX or POKEDE'X in dialog at PROFESSOR BIRCHS LAB)",
-            insert_after="ROUTE_103",
+            insert_after="MAY_ROUTE103_INTERACTION",
             check_fn=check_pokedex_dialog,
             category="dialog"
         )
 
-        # May interaction on Route 103
-        def check_may_interaction(game_state, action):
+        # Dad dialog confirmation at Petalburg Gym
+        def check_dad_dialog(game_state, action):
             """
-            Check if May interaction/battle happened on Route 103:
-            - Must be on Route 103
-            - Dialog text contains 'MAY' or battle-related keywords
+            Check if Dad dialog appeared at Petalburg Gym:
+            - Must be in Petalburg City Gym
+            - Dialog text contains 'DAD:'
 
             Note: This is a dialog-based check, action parameter is not used.
             """
@@ -1107,23 +1206,22 @@ class CodeAgent:
             location = player.get("location", "")
             location_upper = str(location).upper()
 
-            # Must be on Route 103
-            if not ("ROUTE_103" in location_upper or "ROUTE 103" in location_upper):
+            # Must be in Petalburg City Gym
+            if not ("PETALBURG CITY GYM" in location_upper or "PETALBURG_CITY_GYM" in location_upper):
                 return False
 
-            # Check dialog text for May or battle keywords
-            dialog_text = game_state.get("game", {}).get("dialog_text", "")
+            # Check dialog text for Dad
+            dialog_text = game_state.get("game", {}).get("dialog_text") or ""
             dialog_upper = str(dialog_text).upper()
 
-            # Check for May's name or battle-related text
-            return "MAY: I think I know why my dad" in dialog_upper
+            return "DAD:" in dialog_upper
 
         # Add to milestone manager
         self.milestone_manager.add_custom_milestone(
-            milestone_id="MAY_ROUTE103_INTERACTION",
-            description="Interact with May on Route 103 (dialog contains MAY, BATTLE, or TRAINER keywords)",
-            insert_after="ROUTE_103",
-            check_fn=check_may_interaction,
+            milestone_id="DAD_DIALOG_CONFIRMED",
+            description="Dad dialog appeared at Petalburg Gym (DAD: in dialog at PETALBURG CITY GYM)",
+            insert_after="DAD_FIRST_MEETING",
+            check_fn=check_dad_dialog,
             category="dialog"
         )
 
@@ -1200,13 +1298,10 @@ class CodeAgent:
         from utils.state_formatter import convert_state_to_dict
         formatted_state = convert_state_to_dict(state)
 
-        # Get last action for condition evaluation
-        prev_action = self._last_action
-
         # Check SUCCESS condition first
         if current_subtask.get('success_condition'):
             success, result, error_msg = self.subtask_manager.evaluate_condition(
-                current_subtask['success_condition'], formatted_state, prev_action
+                current_subtask['success_condition'], formatted_state
             )
             if not success:
                 # Condition evaluation failed - set error and return STUCK
@@ -1223,7 +1318,7 @@ class CodeAgent:
         # Check PRECONDITION
         if current_subtask.get('precondition'):
             success, result, error_msg = self.subtask_manager.evaluate_condition(
-                current_subtask['precondition'], formatted_state, prev_action
+                current_subtask['precondition'], formatted_state
             )
             if not success:
                 # Precondition evaluation failed - set error and return STUCK

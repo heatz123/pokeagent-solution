@@ -756,7 +756,11 @@ state = {
         'battle_type': str,           # 'wild', 'trainer', etc.
         'player_pokemon': {...},      # Your active Pokemon details
         'opponent_pokemon': {...}     # Opponent's active Pokemon details
-    }
+    },
+
+    # Previous action (always present)
+    'prev_action': str or list        # Last executed action(s), "no_op" if no previous action
+                                      # Examples: "up", "a", ["up", "a"]
 }
 ```
 
@@ -797,7 +801,7 @@ class CodeAgentPromptBuilder:
 
     def build_prompt(
         self,
-        formatted_state: str,
+        formatted_state: dict,
         next_milestone_info: Optional[Dict[str, Any]] = None,
         current_subtask: Optional[Dict[str, Any]] = None,
         stuck_warning: str = "",
@@ -813,7 +817,7 @@ class CodeAgentPromptBuilder:
         전체 프롬프트를 생성하는 메인 메서드
 
         Args:
-            formatted_state: format_state_for_llm()의 결과
+            formatted_state: Formatted and filtered state dict (from convert_state_to_dict + filter_state_for_llm)
             next_milestone_info: 다음 마일스톤 정보 (선택)
                 - 'id': 마일스톤 ID
                 - 'description': 마일스톤 설명
@@ -901,6 +905,10 @@ class CodeAgentPromptBuilder:
             sections.append(self.build_state_schema_section())
             sections.append("")
 
+        # 9.5. Available Tools (auto-loaded from tools/ directory)
+        sections.append(self.build_available_tools_section())
+        sections.append("")
+
         # 10. Code requirements
         sections.append(self.build_code_requirements_section())
         sections.append("")
@@ -960,22 +968,15 @@ IMPORTANT:
 - Use the step numbers to correlate with the EXECUTION LOGS section
 - The screenshots are in REVERSE order - newest first!"""
 
-    def build_game_state_section(self, formatted_state: str) -> str:
+    def build_game_state_section(self, state_dict: dict) -> str:
         """
         현재 게임 상태 섹션
 
-        ASCII map을 시각적으로 표시하고 나머지는 JSON으로 표시
+        ASCII map을 시각적으로 표시하고 나머지는 Python dict으로 표시
+
+        Args:
+            state_dict: State dictionary (already formatted and filtered)
         """
-        import json
-
-        # JSON 파싱
-        try:
-            state_dict = json.loads(formatted_state)
-        except (json.JSONDecodeError, TypeError):
-            # Fallback: 파싱 실패시 그대로 반환
-            return f"""CURRENT GAME STATE (text data):
-{formatted_state}"""
-
         sections = []
         sections.append("CURRENT GAME STATE:")
         sections.append("")
@@ -1031,9 +1032,10 @@ IMPORTANT:
             sections.append("=" * 60)
             sections.append("")
 
-        # Rest of state as JSON (filtering already done by filter_state_for_llm)
-        sections.append("GAME STATE DATA (JSON):")
-        sections.append(json.dumps(state_dict, indent=2))
+        # Rest of state as Python dict (filtering already done by filter_state_for_llm)
+        import pprint
+        sections.append("GAME STATE DATA:")
+        sections.append(pprint.pformat(state_dict, indent=2, width=100))
 
         return "\n".join(sections)
 
@@ -1204,7 +1206,7 @@ Goal: {milestone_desc}"""
 
     def build_knowledge_base_section(self, knowledge_base: Any, limit: int = 100) -> str:
         """
-        Format knowledge base entries for LLM prompt (with IDs for updating)
+        Format knowledge base entries for LLM prompt (with IDs and evidence)
 
         Args:
             knowledge_base: KnowledgeBase instance
@@ -1214,15 +1216,17 @@ Goal: {milestone_desc}"""
             Formatted string for prompt
         """
         if not knowledge_base or len(knowledge_base) == 0:
-            return "KNOWLEDGE BASE: Empty. You can add learnings with ADD_KNOWLEDGE: <sentence>"
+            return """KNOWLEDGE BASE: Empty. You can add learnings with evidence:
+ADD_KNOWLEDGE: <fact> [EVIDENCE: <why this is true - reference observations>]"""
 
         # Get recent entries (returns list of KnowledgeEntry objects or dicts)
         recent_entries = knowledge_base.get_recent(limit)
 
         if not recent_entries:
-            return "KNOWLEDGE BASE: Empty. You can add learnings with ADD_KNOWLEDGE: <sentence>"
+            return """KNOWLEDGE BASE: Empty. You can add learnings with evidence:
+ADD_KNOWLEDGE: <fact> [EVIDENCE: <why this is true - reference observations>]"""
 
-        lines = ["KNOWLEDGE BASE (learned facts - you can reference these by ID):"]
+        lines = ["KNOWLEDGE BASE (learned facts with evidence - reference by ID):"]
         for entry in recent_entries:
             # Handle both KnowledgeEntry objects and dicts
             if isinstance(entry, dict):
@@ -1230,17 +1234,35 @@ Goal: {milestone_desc}"""
                 content = entry['content']
                 step = entry['created_step']
                 updated_step = entry.get('updated_step')
+                evidence_text = entry.get('evidence_text', '')
             else:
                 entry_id = entry.id
                 content = entry.content
                 step = entry.created_step
                 updated_step = entry.updated_step
+                evidence_text = entry.evidence_text
 
             # Show ID in front, with update indicator if updated
             if updated_step:
-                lines.append(f"[{entry_id}] {content} (created: step {step}, updated: step {updated_step})")
+                lines.append(f"[{entry_id}] {content} (step {step}, updated step {updated_step})")
             else:
                 lines.append(f"[{entry_id}] {content} (step {step})")
+
+            # Add evidence if present
+            if evidence_text:
+                lines.append(f"  └─ Evidence: {evidence_text}")
+
+        lines.append("")
+        lines.append("Update knowledge with evidence:")
+        lines.append("- ADD_KNOWLEDGE: <fact> [EVIDENCE: <observation/reasoning>]")
+        lines.append("- UPDATE_KNOWLEDGE: <ID> → <new fact> [EVIDENCE: <updated observation>]")
+        lines.append("- DELETE_KNOWLEDGE: <ID>")
+        lines.append("")
+        lines.append("Evidence should reference:")
+        lines.append("- Visual observations (e.g., 'Saw clock sprite in visual frame')")
+        lines.append("- State changes (e.g., 'player.location changed from X to Y')")
+        lines.append("- Coordinate data (e.g., 'player.position was (5,2)')")
+        lines.append("- Dialog text (e.g., 'Dialog showed \"Set the clock?\"')")
 
         return "\n".join(lines)
 
@@ -1311,6 +1333,29 @@ Goal: {milestone_desc}"""
         lines.append("💡 These are debug messages you logged using log(). Use them to understand what happened in previous executions.")
 
         return "\n".join(lines)
+
+    def build_available_tools_section(self) -> str:
+        """
+        Available tools 섹션 (tools/ 폴더에서 자동 로드)
+
+        Returns:
+            Formatted tools documentation
+        """
+        from utils.tool_loader import load_tools, format_tools_for_prompt
+
+        tools = load_tools('tools')
+
+        if not tools:
+            return "## AVAILABLE TOOLS\n\nNo tools available."
+
+        tools_doc = format_tools_for_prompt(tools)
+
+        return f"""## AVAILABLE TOOLS
+
+The following helper functions are pre-loaded and available in your code.
+Call them directly without importing (they are automatically injected into the execution environment).
+
+{tools_doc}"""
 
     def build_code_requirements_section(self) -> str:
         """코드 생성 요구사항 섹션 (CodeAgent 전용)"""
@@ -1712,12 +1757,10 @@ CRITICAL: This is your main objective. ALL subtasks must directly contribute to 
 
         # 6. Current game state (재사용)
         from utils.state_formatter import convert_state_to_dict, filter_state_for_llm
-        import json
 
         formatted = convert_state_to_dict(state)
         filtered = filter_state_for_llm(formatted)
-        formatted_state = json.dumps(filtered, indent=2, default=str)
-        sections.append(self.build_game_state_section(formatted_state))
+        sections.append(self.build_game_state_section(filtered))
         sections.append("")
 
         # 7. Recent milestones and subtasks (기존 + subtask_manager 추가)
@@ -1754,6 +1797,10 @@ CRITICAL: This is your main objective. ALL subtasks must directly contribute to 
         if include_state_schema:
             sections.append(self.build_state_schema_section())
             sections.append("")
+
+        # 12.5. Available Tools (재사용)
+        sections.append(self.build_available_tools_section())
+        sections.append("")
 
         # 13. Clock example (항상 표시)
         sections.append(self.build_clock_example_section())
