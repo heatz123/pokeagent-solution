@@ -6,7 +6,9 @@
 # --local: Runs in current directory
 # ====================================================================
 
-PROJECT_DIR="/home/heatz123/workspace/rl/pokeagent-speedrun-heatz"
+# Use script's actual directory instead of hardcoded path
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR"
 RUNS_BASE_DIR="/home/heatz123/workspace/rl/pokeagent-runs"
 
 # Parse arguments

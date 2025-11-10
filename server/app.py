@@ -1111,8 +1111,15 @@ async def execute_code(request: CodeExecutionRequest):
             state = env.get_comprehensive_state()
             print(f"🔵 [execute_code] Got state with {len(state)} keys")
 
-        # Execute user code in a restricted namespace
-        namespace = {'state': state}
+        # Load tools for use in playground code
+        from utils.tool_loader import load_tools
+        tools = load_tools('tools')
+
+        # Execute user code in a namespace with state and tools
+        namespace = {
+            'state': state,
+            **tools  # Make tools available in playground code
+        }
 
         try:
             # Execute the user's code with a timeout
