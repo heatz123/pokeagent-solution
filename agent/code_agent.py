@@ -438,9 +438,9 @@ class CodeAgent:
             model_info={"model": self.model, "tokens": {"prompt": 0, "completion": 0}}
         )
 
-        # Knowledge base update (common for both modes)
-        if self.use_knowledge_base:
-            self._parse_and_update_knowledge(response, current_milestone, game_state)
+        # # Knowledge base update (common for both modes)
+        # if self.use_knowledge_base:
+        #     self._parse_and_update_knowledge(response, current_milestone, game_state)
 
         # Extract and store ANALYSIS section (common for both modes)
         analysis_text = self._extract_analysis(response)
@@ -1083,14 +1083,14 @@ class CodeAgent:
             # Single actions don't count
             return False
 
-        # # Add to milestone manager
-        # self.milestone_manager.add_custom_milestone(
-        #     milestone_id="CLOCK_INTERACT",
-        #     description="From position (5,2) in player bedroom, execute action sequence ['up', 'a'] to move up to the clock and interact with it",
-        #     insert_after="PLAYER_BEDROOM",
-        #     check_fn=check_clock_interact,
-        #     category="custom"
-        # )
+        # Add to milestone manager
+        self.milestone_manager.add_custom_milestone(
+            milestone_id="CLOCK_INTERACT",
+            description="From position (5,2) in player bedroom, execute action sequence ['up', 'a'] to move up to the clock and interact with it",
+            insert_after="PLAYER_BEDROOM",
+            check_fn=check_clock_interact,
+            category="custom"
+        )
 
         # Example: Leave the house (same condition as CLOCK_SET)
         def check_leave_house(game_state, action):
@@ -1111,14 +1111,14 @@ class CodeAgent:
                     "HOUSE" not in location_upper and
                     "LAB" not in location_upper)
 
-        # # Add to milestone manager
-        # self.milestone_manager.add_custom_milestone(
-        #     milestone_id="LEAVE_HOUSE",
-        #     description="Leave the house and return to Littleroot Town (outside)",
-        #     insert_after="CLOCK_INTERACT",
-        #     check_fn=check_leave_house,
-        #     category="custom"
-        # )
+        # Add to milestone manager
+        self.milestone_manager.add_custom_milestone(
+            milestone_id="LEAVE_HOUSE",
+            description="Leave the house and return to Littleroot Town (outside)",
+            insert_after="CLOCK_INTERACT",
+            check_fn=check_leave_house,
+            category="custom"
+        )
 
         # May interaction on Route 103
         def check_may_interaction(game_state, action):
