@@ -91,7 +91,11 @@ def _parse_ascii_map(state: dict) -> Set[Tuple[int, int]]:
     player_world_y = player_pos.get('y', 0)
 
     # Parse ASCII map into 2D grid
-    lines = ascii_map.strip().split('\n')
+    # ascii_map can be either a string or a list of strings
+    if isinstance(ascii_map, list):
+        lines = ascii_map
+    else:
+        lines = ascii_map.strip().split('\n')
     blocked = set()
 
     # Walkable symbols (from map_formatter.py)
