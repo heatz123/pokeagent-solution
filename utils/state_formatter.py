@@ -313,7 +313,6 @@ def convert_state_to_dict(state_data):
         },
         "map": {
             "location": player_data.get('location'),
-            "current_map": map_data.get('current_map'),
             "player_coords": map_data.get('player_coords', {})
         },
         "milestones": state_data.get('milestones', {}),
@@ -1173,11 +1172,7 @@ def _format_map_info(map_info, player_data=None, include_debug_info=False, inclu
     context_parts.append("\n=== LOCATION & MAP INFO ===")
     if location_name:
         context_parts.append(f"Current Location: {location_name}")
-    
-    # Also add current map if different
-    if 'current_map' in map_info and map_info['current_map'] != location_name:
-        context_parts.append(f"Current Map: {map_info['current_map']}")
-    
+
     # Get player coordinates
     player_coords = None
     player_coords_dict = map_info.get('player_coords', {})
