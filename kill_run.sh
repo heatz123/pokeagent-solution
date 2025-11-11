@@ -46,5 +46,12 @@ else
     echo "ℹ️  No client process found on port $PORT"
 fi
 
+# Kill meta-agent daemon
+if pkill -f "meta_agent_daemon.py --port $PORT"; then
+    echo "✅ Killed meta-agent daemon on port $PORT"
+else
+    echo "ℹ️  No meta-agent daemon process found on port $PORT"
+fi
+
 echo ""
 echo "✅ Done!"

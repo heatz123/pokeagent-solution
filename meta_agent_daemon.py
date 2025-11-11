@@ -92,6 +92,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Meta-Agent Validation Daemon")
     parser.add_argument(
+        "--port",
+        type=int,
+        required=True,
+        help="Port number for this daemon instance"
+    )
+    parser.add_argument(
         "--interval",
         type=int,
         default=30,

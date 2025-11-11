@@ -43,7 +43,7 @@ echo "Starting client..."
 nohup /home/heatz123/anaconda3/envs/pokeagent/bin/python3 code_client.py --port $SERVER_PORT --model $MODEL --delay 1.0 > client_${SERVER_PORT}.log 2>&1 &
 
 echo "Starting meta-agent daemon..."
-nohup /home/heatz123/anaconda3/envs/pokeagent/bin/python3 meta_agent_daemon.py --interval 30 --max-validations 20 > meta_agent_${SERVER_PORT}.log 2>&1 &
+nohup /home/heatz123/anaconda3/envs/pokeagent/bin/python3 meta_agent_daemon.py --port $SERVER_PORT --interval 30 --max-validations 20 > meta_agent_${SERVER_PORT}.log 2>&1 &
 
 echo ""
 echo "✅ All processes started!"
