@@ -496,7 +496,10 @@
         <div id="code-panel" class="code-panel">
             <div class="panel-header">
                 <div class="section-title"># CODE</div>
-                <button id="view-toggle-btn" class="view-toggle-btn">VIEW PROMPT</button>
+                <div style="display: flex; gap: 10px;">
+                    <button id="view-state-btn" class="view-toggle-btn">VIEW STATE</button>
+                    <button id="view-toggle-btn" class="view-toggle-btn">VIEW PROMPT</button>
+                </div>
             </div>
             <div class="mode-toggle">
                 <button id="manual-mode-btn" class="mode-btn active">MANUAL</button>
@@ -546,6 +549,17 @@
                 No prompt available yet. Generate code first to see the prompt.
             </div>
         </div>
+
+        <div id="state-panel" class="prompt-view-panel hidden">
+            <div class="panel-header">
+                <div class="section-title" style="color: #33ff33;"># STATE</div>
+                <button id="state-back-btn" class="view-toggle-btn active">BACK TO CODE</button>
+            </div>
+
+            <div id="state-content" class="prompt-view-content">
+                No state available yet. Generate code first to see the formatted state.
+            </div>
+        </div>
     </div>
 
     <script>
@@ -559,21 +573,28 @@
         console.log(`Using frame server URL: ${frameServerUrl}`);
 
         // View toggle state and prompt storage
-        let currentView = 'code'; // 'code' or 'prompt'
+        let currentView = 'code'; // 'code', 'prompt', or 'state'
         let lastPrompt = null;
+        let lastState = null;
 
         // View toggle functionality
         const viewToggleBtn = document.getElementById('view-toggle-btn');
+        const viewStateBtn = document.getElementById('view-state-btn');
         const promptBackBtn = document.getElementById('prompt-back-btn');
+        const stateBackBtn = document.getElementById('state-back-btn');
 
         viewToggleBtn.addEventListener('click', showPromptView);
+        viewStateBtn.addEventListener('click', showStateView);
         promptBackBtn.addEventListener('click', showCodeView);
+        stateBackBtn.addEventListener('click', showCodeView);
 
         function showPromptView() {
             const codePanel = document.getElementById('code-panel');
             const promptPanel = document.getElementById('prompt-panel');
+            const statePanel = document.getElementById('state-panel');
 
             codePanel.classList.add('hidden');
+            statePanel.classList.add('hidden');
             promptPanel.classList.remove('hidden');
             currentView = 'prompt';
 
@@ -586,11 +607,32 @@
             }
         }
 
+        function showStateView() {
+            const codePanel = document.getElementById('code-panel');
+            const promptPanel = document.getElementById('prompt-panel');
+            const statePanel = document.getElementById('state-panel');
+
+            codePanel.classList.add('hidden');
+            promptPanel.classList.add('hidden');
+            statePanel.classList.remove('hidden');
+            currentView = 'state';
+
+            // Display state
+            const stateContent = document.getElementById('state-content');
+            if (lastState) {
+                stateContent.textContent = lastState;
+            } else {
+                stateContent.textContent = 'No state available yet. Generate code first to see the formatted state.';
+            }
+        }
+
         function showCodeView() {
             const codePanel = document.getElementById('code-panel');
             const promptPanel = document.getElementById('prompt-panel');
+            const statePanel = document.getElementById('state-panel');
 
             promptPanel.classList.add('hidden');
+            statePanel.classList.add('hidden');
             codePanel.classList.remove('hidden');
             currentView = 'code';
         }
@@ -598,6 +640,11 @@
         // Save prompt for viewing
         function savePrompt(prompt) {
             lastPrompt = prompt;
+        }
+
+        // Save state for viewing
+        function saveState(state) {
+            lastState = state;
         }
 
         // Frame polling with robust error handling
@@ -749,7 +796,7 @@
                     // Display structured response if available
                     let responseHtml = '';
                     if (result.llm_response) {
-                        responseHtml = displayStructuredResponse(result.llm_response, result.prompt);
+                        responseHtml = displayStructuredResponse(result.llm_response, result.prompt, result.formatted_state);
                     }
 
                     resultDiv.innerHTML = `
@@ -783,10 +830,15 @@
         });
 
         // Display full response (simplified version - no parsing)
-        function displayStructuredResponse(fullResponse, prompt = null) {
+        function displayStructuredResponse(fullResponse, prompt = null, state = null) {
             // Save prompt for prompt viewer
             if (prompt) {
                 savePrompt(prompt);
+            }
+
+            // Save state for state viewer
+            if (state) {
+                saveState(state);
             }
 
             // Display entire response as-is
@@ -880,7 +932,7 @@
                     // Try to display structured response if full_response is available
                     let responseHtml = '';
                     if (data.full_response) {
-                        responseHtml = displayStructuredResponse(data.full_response, data.prompt);
+                        responseHtml = displayStructuredResponse(data.full_response, data.prompt, data.formatted_state);
                     }
 
                     resultDiv.innerHTML = `

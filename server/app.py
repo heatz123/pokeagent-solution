@@ -83,7 +83,7 @@ release_frames_remaining = 0  # Frames left to wait after release
 
 ### IMPORTANT: DO NOT REDUCE THESE OR BUTTONS MAY NOT WORK! ###
 ACTION_HOLD_FRAMES = 12   # Hold each action for 12 frames 
-ACTION_RELEASE_DELAY = 24   # Delay between actions for processing
+ACTION_RELEASE_DELAY = 48   # Delay between actions for processing
 
 # Video recording state
 video_writer = None
@@ -1067,6 +1067,7 @@ NOW GENERATE THE CODE (respond with ONLY the Python code, no markdown):"""
                 "llm_response": generated_text,  # Full LLM response for structured display
                 "state_summary": summary,
                 "prompt": prompt,
+                "formatted_state": state_text,  # Formatted state for VIEW STATE button
                 "generation_time": execution_time,
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens
