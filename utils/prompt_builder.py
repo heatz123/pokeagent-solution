@@ -515,7 +515,16 @@ KNOWLEDGE_UPDATE:
 [Record important spatial and gameplay information discovered during this run:]
 
 Add new knowledge:
-  ADD_KNOWLEDGE: <sentence with any useful info - coordinates, locations, NPCs, items, etc.>
+  General format: ADD_KNOWLEDGE: <sentence>
+
+  Spatial formats (use when adding map/coordinate info):
+    [OBJECT] <name> at (<x>, <y>) in <location>
+    [OBJECT] <name> at (<x>, <y>) in <location>: <extra description>
+    [NPC] <name> at (<x>, <y>) in <location>
+    [NPC] <name> (trainer) at (<x>, <y>) in <location>: <extra description>
+    [WARP] <type> at (<x>, <y>) in <location>
+    [WARP] <type> at (<x>, <y>) in <location> -> <destination>
+    [WARP] <type> at (<x>, <y>) in <location> -> <destination>: <extra description>
 
 Update existing knowledge by ID:
   UPDATE_KNOWLEDGE: <ID> → <new sentence>
@@ -524,16 +533,27 @@ Delete incorrect knowledge (optional):
   DELETE_KNOWLEDGE: <ID>
 
 Examples:
+  # Spatial knowledge (use [OBJECT]/[NPC]/[WARP] prefixes)
+  ADD_KNOWLEDGE: [OBJECT] Television at (4, 1) in Brendan's House 2F
+  ADD_KNOWLEDGE: [OBJECT] PC at (5, 1) in Brendan's House 2F: Used to store Pokemon
+  ADD_KNOWLEDGE: [NPC] Mom at (8, 2) in Brendan's House 1F: Blocks stairs initially
+  ADD_KNOWLEDGE: [NPC] Youngster (trainer) at (5, 10) in Route 103
+  ADD_KNOWLEDGE: [WARP] door at (7, 1) in Brendan's House 2F -> Brendan's House 1F
+  ADD_KNOWLEDGE: [WARP] stairs at (8, 2) in Brendan's House 1F: Leads to bedroom after Mom moves
+
+  # General knowledge (no prefix)
   ADD_KNOWLEDGE: The clock has been set
-  ADD_KNOWLEDGE: NPC trainer at (10, 5) in Route 103 facing down blocks path
-  ADD_KNOWLEDGE: Warp at coords (7, 8) in Littleroot Town goes to Player House 1F
-  UPDATE_KNOWLEDGE: kb_1234567890 → NPC trainer at (10, 5) in Route 103 was defeated, path now clear
-  UPDATE_KNOWLEDGE: kb_9876543210 → Warp (7, 8) Littleroot → House 1F spawns at (5, 7)
-  DELETE_KNOWLEDGE: kb_1111111111
+  ADD_KNOWLEDGE: Player obtained the Pokedex in Littleroot Town
+
+  # Updating
+  UPDATE_KNOWLEDGE: kb_123 → [NPC] Mom at (5, 5) in Brendan's House 1F: Moved to kitchen
+  DELETE_KNOWLEDGE: kb_456
 
 IMPORTANT:
-- Include coordinate information from VISUAL FRAME ANALYSIS when relevant
-- Use any format you want - just be clear and specific
+- USE [OBJECT]/[NPC]/[WARP] prefixes when adding spatial/coordinate information
+- Extract coordinates from VISUAL FRAME ANALYSIS or map data when available
+- Add extra description after ":" if context is important (e.g., "blocks path", "requires item")
+- For general gameplay facts, use plain text without prefixes
 - Reference knowledge by [ID] when updating or deleting
 - Only add NEW facts that aren't already in the knowledge base above
 """ if self.include_knowledge_update else ""
@@ -590,7 +610,8 @@ REASONING:
 CODE:
 [Your final Python code - define a function called 'run' that takes 'state' as parameter and returns ONE action string OR a list of actions.
 Add brief comments explaining your logic. Keep it simple and focused.
-IMPORTANT: All navigation decisions MUST be coordinate-based using state['player']['position']['x'] and state['player']['position']['y'] - compare current position with target coordinates from ANALYSIS to determine movement direction.]
+IMPORTANT: All navigation decisions MUST be coordinate-based using state['player']['position']['x'] and state['player']['position']['y'] - compare current position with target coordinates from ANALYSIS to determine movement direction.
+NOTE: Pre-loaded helper functions from AVAILABLE TOOLS section can be called directly without imports.]
 
 REQUIREMENTS:
 - Return action as a lowercase string OR list of lowercase strings
@@ -733,7 +754,6 @@ state = {
     # Map information
     'map': {
         'location': str,              # Map location name
-        'current_map': str,           # Current map name
         'player_coords': {'x': int, 'y': int},  # Player coordinates
         'ascii_map': [str, str, ...], # List of strings - each row is a string (stitched/global map)
         'legend': [str, str, ...],    # List of strings - map legend explaining symbols
@@ -1495,7 +1515,16 @@ KNOWLEDGE_UPDATE:
 [Record important spatial and gameplay information discovered during this run:]
 
 Add new knowledge:
-  ADD_KNOWLEDGE: <sentence with any useful info - coordinates, locations, NPCs, items, etc.>
+  General format: ADD_KNOWLEDGE: <sentence>
+
+  Spatial formats (use when adding map/coordinate info):
+    [OBJECT] <name> at (<x>, <y>) in <location>
+    [OBJECT] <name> at (<x>, <y>) in <location>: <extra description>
+    [NPC] <name> at (<x>, <y>) in <location>
+    [NPC] <name> (trainer) at (<x>, <y>) in <location>: <extra description>
+    [WARP] <type> at (<x>, <y>) in <location>
+    [WARP] <type> at (<x>, <y>) in <location> -> <destination>
+    [WARP] <type> at (<x>, <y>) in <location> -> <destination>: <extra description>
 
 Update existing knowledge by ID:
   UPDATE_KNOWLEDGE: <ID> → <new sentence>
@@ -1504,16 +1533,27 @@ Delete incorrect knowledge (optional):
   DELETE_KNOWLEDGE: <ID>
 
 Examples:
+  # Spatial knowledge (use [OBJECT]/[NPC]/[WARP] prefixes)
+  ADD_KNOWLEDGE: [OBJECT] Television at (4, 1) in Brendan's House 2F
+  ADD_KNOWLEDGE: [OBJECT] PC at (5, 1) in Brendan's House 2F: Used to store Pokemon
+  ADD_KNOWLEDGE: [NPC] Mom at (8, 2) in Brendan's House 1F: Blocks stairs initially
+  ADD_KNOWLEDGE: [NPC] Youngster (trainer) at (5, 10) in Route 103
+  ADD_KNOWLEDGE: [WARP] door at (7, 1) in Brendan's House 2F -> Brendan's House 1F
+  ADD_KNOWLEDGE: [WARP] stairs at (8, 2) in Brendan's House 1F: Leads to bedroom after Mom moves
+
+  # General knowledge (no prefix)
   ADD_KNOWLEDGE: The clock has been set
-  ADD_KNOWLEDGE: NPC trainer at (10, 5) in Route 103 facing down blocks path
-  ADD_KNOWLEDGE: Warp at coords (7, 8) in Littleroot Town goes to Player House 1F
-  UPDATE_KNOWLEDGE: kb_1234567890 → NPC trainer at (10, 5) in Route 103 was defeated, path now clear
-  UPDATE_KNOWLEDGE: kb_9876543210 → Warp (7, 8) Littleroot → House 1F spawns at (5, 7)
-  DELETE_KNOWLEDGE: kb_1111111111
+  ADD_KNOWLEDGE: Player obtained the Pokedex in Littleroot Town
+
+  # Updating
+  UPDATE_KNOWLEDGE: kb_123 → [NPC] Mom at (5, 5) in Brendan's House 1F: Moved to kitchen
+  DELETE_KNOWLEDGE: kb_456
 
 IMPORTANT:
-- Include coordinate information from VISUAL FRAME ANALYSIS when relevant
-- Use any format you want - just be clear and specific
+- USE [OBJECT]/[NPC]/[WARP] prefixes when adding spatial/coordinate information
+- Extract coordinates from VISUAL FRAME ANALYSIS or map data when available
+- Add extra description after ":" if context is important (e.g., "blocks path", "requires item")
+- For general gameplay facts, use plain text without prefixes
 - Reference knowledge by [ID] when updating or deleting
 - Only add NEW facts that aren't already in the knowledge base above
 """ if self.config.include_knowledge_update else ""
@@ -1624,7 +1664,8 @@ Success Condition: state['player']['position']['x'] == 5 and state['player']['po
 
 CODE:
 [Implement policy for current subtask.
-IMPORTANT: All navigation decisions MUST be coordinate-based using state['player']['position']['x'] and state['player']['position']['y'] - compare current position with target coordinates from VISUAL FRAME ANALYSIS to determine movement direction (dx>0→right, dx<0→left, dy>0→down, dy<0→up).]
+IMPORTANT: All navigation decisions MUST be coordinate-based using state['player']['position']['x'] and state['player']['position']['y'] - compare current position with target coordinates from VISUAL FRAME ANALYSIS to determine movement direction (dx>0→right, dx<0→left, dy>0→down, dy<0→up).
+NOTE: Pre-loaded helper functions from AVAILABLE TOOLS section can be called directly without imports.]
 
 {f'''Note (Processing Visual Observations):
 You can query the screenshot for visual information using the built-in add_to_state_schema() function.
