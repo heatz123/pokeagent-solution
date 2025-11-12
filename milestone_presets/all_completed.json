@@ -1,0 +1,94 @@
+{
+  "GAME_RUNNING": {
+    "completed": true,
+    "timestamp": 1762900000.0
+  },
+  "LITTLEROOT_TOWN": {
+    "completed": true,
+    "timestamp": 1762900100.0
+  },
+  "PLAYER_HOUSE_ENTERED": {
+    "completed": true,
+    "timestamp": 1762900200.0
+  },
+  "PLAYER_BEDROOM": {
+    "completed": true,
+    "timestamp": 1762900300.0
+  },
+  "CLOCK_INTERACT": {
+    "completed": true,
+    "timestamp": 1762900400.0
+  },
+  "LEAVE_HOUSE": {
+    "completed": true,
+    "timestamp": 1762900500.0
+  },
+  "RIVAL_HOUSE": {
+    "completed": true,
+    "timestamp": 1762900600.0
+  },
+  "RIVAL_BEDROOM": {
+    "completed": true,
+    "timestamp": 1762900700.0
+  },
+  "ROUTE_101": {
+    "completed": true,
+    "timestamp": 1762900800.0
+  },
+  "STARTER_CHOSEN": {
+    "completed": true,
+    "timestamp": 1762900900.0
+  },
+  "BIRCH_LAB_VISITED": {
+    "completed": true,
+    "timestamp": 1762901000.0
+  },
+  "OLDALE_TOWN": {
+    "completed": true,
+    "timestamp": 1762901100.0
+  },
+  "ROUTE_103": {
+    "completed": true,
+    "timestamp": 1762901200.0
+  },
+  "MAY_ROUTE103_INTERACTION": {
+    "completed": true,
+    "timestamp": 1762901300.0
+  },
+  "RECEIVED_POKEDEX": {
+    "completed": true,
+    "timestamp": 1762901400.0
+  },
+  "POKEDEX_DIALOG_CONFIRMED": {
+    "completed": true,
+    "timestamp": 1762901500.0
+  },
+  "ROUTE_102": {
+    "completed": true,
+    "timestamp": 1762901600.0
+  },
+  "PETALBURG_CITY": {
+    "completed": true,
+    "timestamp": 1762901700.0
+  },
+  "DAD_DIALOG_CONFIRMED": {
+    "completed": true,
+    "timestamp": 1762901800.0
+  },
+  "ROUTE_104_SOUTH": {
+    "completed": true,
+    "timestamp": 1762901900.0
+  },
+  "PETALBURG_WOODS": {
+    "completed": true,
+    "timestamp": 1762902000.0
+  },
+  "RUSTBORO_CITY": {
+    "completed": true,
+    "timestamp": 1762902100.0
+  },
+  "STONE_BADGE": {
+    "completed": true,
+    "timestamp": 1762902200.0
+  }
+}

@@ -1217,72 +1217,59 @@ KEY MECHANICS:
         Returns:
             포맷팅된 마일스톤 섹션
         """
-        milestone_id = milestone_info.get('id', 'Unknown')
         milestone_desc = milestone_info.get('description', 'No description')
 
         return f"""NEXT MILESTONE:
-ID: {milestone_id}
-Goal: {milestone_desc}"""
+{milestone_desc}"""
 
     def build_knowledge_base_section(self, knowledge_base: Any, limit: int = 100) -> str:
         """
         Format knowledge base entries for LLM prompt (with IDs and evidence)
 
         Args:
-            knowledge_base: KnowledgeBase instance
-            limit: Maximum number of recent entries to include
+            knowledge_base: KnowledgeBase instance OR list of entry dicts
+            limit: Maximum number of recent entries to include (ignored if list)
 
         Returns:
             Formatted string for prompt
         """
-        if not knowledge_base or len(knowledge_base) == 0:
-            return """KNOWLEDGE BASE: Empty. You can add learnings with evidence:
-ADD_KNOWLEDGE: <fact> [EVIDENCE: <why this is true - reference observations>]"""
+        if not knowledge_base:
+            return """KNOWLEDGE BASE: Empty. You can add learnings:
+ADD_KNOWLEDGE: <fact>"""
 
-        # Get recent entries (returns list of KnowledgeEntry objects or dicts)
-        recent_entries = knowledge_base.get_recent(limit)
+        # Handle both list of dicts and KnowledgeBase instance
+        if isinstance(knowledge_base, list):
+            # Already filtered list of dicts
+            recent_entries = knowledge_base
+        elif hasattr(knowledge_base, 'get_recent'):
+            # KnowledgeBase instance
+            recent_entries = knowledge_base.get_recent(limit)
+        else:
+            return """KNOWLEDGE BASE: Empty. You can add learnings:
+ADD_KNOWLEDGE: <fact>"""
 
         if not recent_entries:
-            return """KNOWLEDGE BASE: Empty. You can add learnings with evidence:
-ADD_KNOWLEDGE: <fact> [EVIDENCE: <why this is true - reference observations>]"""
+            return """KNOWLEDGE BASE: Empty. You can add learnings:
+ADD_KNOWLEDGE: <fact>"""
 
-        lines = ["KNOWLEDGE BASE (learned facts with evidence - reference by ID):"]
+        lines = ["KNOWLEDGE BASE (learned facts - reference by ID):"]
         for entry in recent_entries:
             # Handle both KnowledgeEntry objects and dicts
             if isinstance(entry, dict):
                 entry_id = entry['id']
                 content = entry['content']
-                step = entry['created_step']
-                updated_step = entry.get('updated_step')
-                evidence_text = entry.get('evidence_text', '')
             else:
                 entry_id = entry.id
                 content = entry.content
-                step = entry.created_step
-                updated_step = entry.updated_step
-                evidence_text = entry.evidence_text
 
-            # Show ID in front, with update indicator if updated
-            if updated_step:
-                lines.append(f"[{entry_id}] {content} (step {step}, updated step {updated_step})")
-            else:
-                lines.append(f"[{entry_id}] {content} (step {step})")
-
-            # Add evidence if present
-            if evidence_text:
-                lines.append(f"  └─ Evidence: {evidence_text}")
+            # Show ID and content only
+            lines.append(f"[{entry_id}] {content}")
 
         lines.append("")
-        lines.append("Update knowledge with evidence:")
-        lines.append("- ADD_KNOWLEDGE: <fact> [EVIDENCE: <observation/reasoning>]")
-        lines.append("- UPDATE_KNOWLEDGE: <ID> → <new fact> [EVIDENCE: <updated observation>]")
+        lines.append("Update knowledge:")
+        lines.append("- ADD_KNOWLEDGE: <fact>")
+        lines.append("- UPDATE_KNOWLEDGE: <ID> → <new fact>")
         lines.append("- DELETE_KNOWLEDGE: <ID>")
-        lines.append("")
-        lines.append("Evidence should reference:")
-        lines.append("- Visual observations (e.g., 'Saw clock sprite in visual frame')")
-        lines.append("- State changes (e.g., 'player.location changed from X to Y')")
-        lines.append("- Coordinate data (e.g., 'player.position was (5,2)')")
-        lines.append("- Dialog text (e.g., 'Dialog showed \"Set the clock?\"')")
 
         return "\n".join(lines)
 

@@ -66,9 +66,21 @@
             color: #0a0a0a;
         }
 
+        .btn-small {
+            padding: 5px 10px;
+            font-size: 14px;
+            margin: 0 5px;
+        }
+
         .knowledge-list {
             max-width: 1000px;
             margin: 0 auto;
+        }
+
+        .entry-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
         }
 
         .knowledge-entry {
@@ -346,7 +358,7 @@
                     }
 
                     html += `
-                        <div class="knowledge-entry">
+                        <div class="knowledge-entry" id="entry-${entry.id}">
                             <div class="knowledge-content">
                                 ${escapeHtml(entry.content)}
                                 ${validationBadge}
@@ -370,6 +382,10 @@
                                 </div>
                             </div>
                             ${validationDetails}
+                            <div class="entry-actions">
+                                <button class="btn btn-small" onclick='editEntry("${entry.id}", ${JSON.stringify(entry.content)}, ${entry.created_step}, "${entry.created_milestone}")'>✏️ Edit</button>
+                                <button class="btn btn-small btn-danger" onclick="deleteEntry('${entry.id}')">🗑️ Delete</button>
+                            </div>
                         </div>
                     `;
                 });
@@ -455,11 +471,119 @@
             }
         }
 
+        let editingEntryId = null;
+
+        function editEntry(entryId, content, step, milestone) {
+            editingEntryId = entryId;
+
+            // Populate form
+            document.getElementById('knowledge-content').value = content;
+            document.getElementById('knowledge-step').value = step;
+            document.getElementById('knowledge-milestone').value = milestone;
+
+            // Show form and change title
+            const form = document.getElementById('add-form');
+            form.style.display = 'block';
+            form.querySelector('h3').textContent = 'Edit Knowledge Entry';
+
+            // Scroll to form
+            form.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        async function updateKnowledge() {
+            if (!editingEntryId) return;
+
+            const content = document.getElementById('knowledge-content').value.trim();
+            const step = parseInt(document.getElementById('knowledge-step').value);
+            const milestone = document.getElementById('knowledge-milestone').value.trim();
+
+            if (!content) {
+                alert('Please enter knowledge content');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${serverUrl}/knowledge/${editingEntryId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        content: content,
+                        step: step,
+                        milestone: milestone
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Knowledge updated successfully!');
+                    editingEntryId = null;
+                    const form = document.getElementById('add-form');
+                    form.querySelector('h3').textContent = 'Add New Knowledge Entry';
+                    toggleAddForm();
+                    refreshKnowledge();
+                } else {
+                    alert('Error updating knowledge');
+                }
+            } catch (error) {
+                console.error('Error updating knowledge:', error);
+                alert('Error updating knowledge');
+            }
+        }
+
+        async function deleteEntry(entryId) {
+            if (!confirm('Are you sure you want to delete this entry?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${serverUrl}/knowledge/${entryId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    alert('Knowledge entry deleted!');
+                    refreshKnowledge();
+                } else {
+                    alert('Error deleting knowledge');
+                }
+            } catch (error) {
+                console.error('Error deleting knowledge:', error);
+                alert('Error deleting knowledge');
+            }
+        }
+
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
         }
+
+        // Override submitKnowledge to handle both add and edit modes
+        const originalSubmitKnowledge = submitKnowledge;
+        submitKnowledge = async function() {
+            if (editingEntryId) {
+                await updateKnowledge();
+            } else {
+                await originalSubmitKnowledge();
+            }
+        };
+
+        // Override toggleAddForm to reset edit mode
+        const originalToggleAddForm = toggleAddForm;
+        toggleAddForm = function() {
+            if (document.getElementById('add-form').style.display !== 'none') {
+                // Reset form to add mode
+                editingEntryId = null;
+                const form = document.getElementById('add-form');
+                form.querySelector('h3').textContent = 'Add New Knowledge Entry';
+            }
+            originalToggleAddForm();
+        };
 
         // Auto-refresh every 5 seconds
         setInterval(refreshKnowledge, 5000);

@@ -245,6 +245,56 @@ class KnowledgeBase:
         self.load()  # Reload from file to get latest external changes
         return [e.to_dict() for e in self.entries[-limit:]]
 
+    def get_by_keywords(self, keywords: set, limit: int = 50, always_include_recent: int = 0) -> List[Dict[str, Any]]:
+        """
+        Get knowledge entries matching any of the given keywords
+
+        Args:
+            keywords: Set of uppercase keywords to search for
+            limit: Maximum number of entries to return
+            always_include_recent: Number of recent entries to always include
+
+        Returns:
+            List of matching entry dicts (prioritized by number of keyword matches)
+        """
+        self.load()  # Reload from file to get latest external changes
+
+        if not self.entries:
+            return []
+
+        # If no keywords, return recent entries only
+        if not keywords:
+            return [e.to_dict() for e in self.entries[-always_include_recent:]] if always_include_recent else []
+
+        # Filter entries and count keyword matches
+        matched = []
+        for entry in self.entries:
+            content_upper = entry.content.upper()
+            # Count how many keywords match
+            match_count = sum(1 for keyword in keywords if keyword in content_upper)
+            if match_count > 0:
+                matched.append((entry, match_count))
+
+        # Sort by match count (descending - more matches first)
+        matched.sort(key=lambda x: x[1], reverse=True)
+
+        # Extract just the entries (remove match counts)
+        matched_entries = [entry for entry, _ in matched]
+
+        # Always include recent entries (deduplicate by id)
+        if always_include_recent > 0:
+            recent = self.entries[-always_include_recent:]
+            # Combine matched + recent, deduplicate
+            all_entries = {e.id: e for e in (matched_entries + recent)}
+            result = [e.to_dict() for e in all_entries.values()]
+            # Sort by created_step to maintain temporal order
+            result.sort(key=lambda x: x['created_step'])
+            return result[-limit:]
+        else:
+            # Return first N matched entries (already sorted by match count)
+            result = [e.to_dict() for e in matched_entries[:limit]]
+            return result
+
     def clear(self):
         """Clear all knowledge entries (for debugging)"""
         self.entries = []

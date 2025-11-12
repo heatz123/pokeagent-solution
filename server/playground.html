@@ -553,11 +553,14 @@
         <div id="state-panel" class="prompt-view-panel hidden">
             <div class="panel-header">
                 <div class="section-title" style="color: #33ff33;"># STATE</div>
-                <button id="state-back-btn" class="view-toggle-btn active">BACK TO CODE</button>
+                <div style="display: flex; gap: 10px;">
+                    <button id="state-format-toggle" class="view-toggle-btn" style="border-color: #33ff33; color: #33ff33;">DICT (JSON)</button>
+                    <button id="state-back-btn" class="view-toggle-btn active">BACK TO CODE</button>
+                </div>
             </div>
 
             <div id="state-content" class="prompt-view-content">
-                No state available yet. Generate code first to see the formatted state.
+                Click VIEW STATE to load the current game state...
             </div>
         </div>
     </div>
@@ -576,6 +579,8 @@
         let currentView = 'code'; // 'code', 'prompt', or 'state'
         let lastPrompt = null;
         let lastState = null;
+        let lastStateDict = null;
+        let stateFormatMode = 'dict'; // 'dict' or 'text'
 
         // View toggle functionality
         const viewToggleBtn = document.getElementById('view-toggle-btn');
@@ -583,10 +588,13 @@
         const promptBackBtn = document.getElementById('prompt-back-btn');
         const stateBackBtn = document.getElementById('state-back-btn');
 
+        const stateFormatToggle = document.getElementById('state-format-toggle');
+
         viewToggleBtn.addEventListener('click', showPromptView);
         viewStateBtn.addEventListener('click', showStateView);
         promptBackBtn.addEventListener('click', showCodeView);
         stateBackBtn.addEventListener('click', showCodeView);
+        stateFormatToggle.addEventListener('click', toggleStateFormat);
 
         function showPromptView() {
             const codePanel = document.getElementById('code-panel');
@@ -607,7 +615,7 @@
             }
         }
 
-        function showStateView() {
+        async function showStateView() {
             const codePanel = document.getElementById('code-panel');
             const promptPanel = document.getElementById('prompt-panel');
             const statePanel = document.getElementById('state-panel');
@@ -617,13 +625,60 @@
             statePanel.classList.remove('hidden');
             currentView = 'state';
 
-            // Display state
+            // Fetch and display current state in real-time
             const stateContent = document.getElementById('state-content');
-            if (lastState) {
-                stateContent.textContent = lastState;
-            } else {
-                stateContent.textContent = 'No state available yet. Generate code first to see the formatted state.';
+            stateContent.textContent = 'Loading current state...';
+
+            try {
+                const response = await fetch(`${serverUrl}/formatted_state`);
+                const data = await response.json();
+
+                if (data.success) {
+                    // Save both formats
+                    lastState = data.formatted_state;
+                    lastStateDict = data.state_dict;
+
+                    // Display based on current mode
+                    displayStateContent();
+                } else {
+                    stateContent.textContent = `Error: ${data.error || 'Failed to load state'}`;
+                }
+            } catch (error) {
+                stateContent.textContent = `Network Error: ${error.message}\n\nTip: Make sure the server is running.`;
             }
+        }
+
+        function displayStateContent() {
+            const stateContent = document.getElementById('state-content');
+
+            if (stateFormatMode === 'dict') {
+                if (lastStateDict) {
+                    stateContent.textContent = JSON.stringify(lastStateDict, null, 2);
+                } else {
+                    stateContent.textContent = 'No state dict available. Click VIEW STATE to load.';
+                }
+            } else {
+                if (lastState) {
+                    stateContent.textContent = lastState;
+                } else {
+                    stateContent.textContent = 'No formatted state available. Click VIEW STATE to load.';
+                }
+            }
+        }
+
+        function toggleStateFormat() {
+            const toggleBtn = document.getElementById('state-format-toggle');
+
+            if (stateFormatMode === 'dict') {
+                stateFormatMode = 'text';
+                toggleBtn.textContent = 'TEXT (LLM)';
+            } else {
+                stateFormatMode = 'dict';
+                toggleBtn.textContent = 'DICT (JSON)';
+            }
+
+            // Update display
+            displayStateContent();
         }
 
         function showCodeView() {

@@ -8,7 +8,7 @@ This file is auto-loaded - no import needed in LLM code!
 
 import heapq
 import logging
-from typing import Tuple, Set, List, Optional
+from typing import Tuple, Set, List, Optional, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +47,11 @@ def find_path_action(state: dict, goal_x: int, goal_y: int, max_distance: int = 
             logger.info(f"Already at goal ({goal_x}, {goal_y})")
             return 'no_op'
 
-        # 2. Parse ASCII map to get blocked positions
-        blocked = _parse_ascii_map(state)
+        # 2. Parse ASCII map to get blocked positions and ledges
+        blocked, ledges = _parse_ascii_map(state)
 
-        # 3. Run A* pathfinding
-        path = _astar(start_x, start_y, goal_x, goal_y, blocked, max_distance)
+        # 3. Run A* pathfinding with ledge awareness
+        path = _astar(start_x, start_y, goal_x, goal_y, blocked, ledges, max_distance)
 
         if not path or len(path) < 2:
             logger.info(f"No path found from ({start_x}, {start_y}) to ({goal_x}, {goal_y})")
@@ -70,19 +70,27 @@ def find_path_action(state: dict, goal_x: int, goal_y: int, max_distance: int = 
         return 'no_op'
 
 
-def _parse_ascii_map(state: dict) -> Set[Tuple[int, int]]:
-    """Parse ASCII map from state to extract blocked positions."""
+def _parse_ascii_map(state: dict) -> Tuple[Set[Tuple[int, int]], Dict[Tuple[int, int], str]]:
+    """
+    Parse ASCII map from state to extract blocked positions and ledges.
+
+    Returns:
+        tuple: (blocked_set, ledges_dict)
+            - blocked_set: Set of (x, y) coordinates that are impassable
+            - ledges_dict: Dict mapping (x, y) to ledge direction symbol
+    """
     map_data = state.get('map', {})
     ascii_map = map_data.get('ascii_map', '')
     player_position = map_data.get('player_position', {})
 
     if not ascii_map or not player_position:
         logger.warning("No ASCII map or player position in state")
-        return set()
+        return set(), {}
 
     # Get player position in ASCII map grid (row, col)
-    player_row = player_position.get('row', 0)
-    player_col = player_position.get('col', 0)
+    # Note: player_position uses 'y' for row and 'x' for col
+    player_row = player_position.get('y', 0)
+    player_col = player_position.get('x', 0)
 
     # Get player world coordinates
     player_data = state.get('player', {})
@@ -96,11 +104,15 @@ def _parse_ascii_map(state: dict) -> Set[Tuple[int, int]]:
         lines = ascii_map
     else:
         lines = ascii_map.strip().split('\n')
+
     blocked = set()
+    ledges = {}
+
+    # Ledge symbols (one-way directional jumps)
+    ledge_symbols = {'↓', '↑', '←', '→', '↗', '↖', '↘', '↙'}
 
     # Walkable symbols (from map_formatter.py)
-    walkable_symbols = {'.', '~', 'D', 'S', 'P', 'c', 'T', '?', 'F', 't',
-                        '↓', '↑', '←', '→', '↗', '↖', '↘', '↙'}
+    walkable_symbols = {'.', '~', 'D', 'S', 'P', 'c', 'T', '?', 'F', 't'} | ledge_symbols
 
     for row_idx, line in enumerate(lines):
         for col_idx, symbol in enumerate(line):
@@ -108,11 +120,15 @@ def _parse_ascii_map(state: dict) -> Set[Tuple[int, int]]:
             world_x = player_world_x + (col_idx - player_col)
             world_y = player_world_y + (row_idx - player_row)
 
+            # Track ledges separately
+            if symbol in ledge_symbols:
+                ledges[(world_x, world_y)] = symbol
+
             # Mark as blocked if not walkable
             if symbol not in walkable_symbols:
                 blocked.add((world_x, world_y))
 
-    return blocked
+    return blocked, ledges
 
 
 def _astar(
@@ -121,9 +137,14 @@ def _astar(
     goal_x: int,
     goal_y: int,
     blocked: Set[Tuple[int, int]],
+    ledges: Dict[Tuple[int, int], str],
     max_distance: int
 ) -> Optional[List[Tuple[int, int]]]:
-    """A* pathfinding algorithm."""
+    """
+    A* pathfinding algorithm with ledge awareness.
+
+    If goal is unreachable, returns path to closest reachable position.
+    """
     start_node = (
         _heuristic(start_x, start_y, goal_x, goal_y),  # f_cost
         0,  # g_cost
@@ -136,6 +157,10 @@ def _astar(
     closed_set = set()
     came_from = {}
     g_score = {(start_x, start_y): 0}
+
+    # Track closest position to goal (for best-effort pathfinding)
+    best_pos = (start_x, start_y)
+    best_distance = _heuristic(start_x, start_y, goal_x, goal_y)
 
     while open_list:
         current = heapq.heappop(open_list)
@@ -155,6 +180,12 @@ def _astar(
             continue
         closed_set.add(pos)
 
+        # Update best position if closer to goal
+        current_distance = _heuristic(x, y, goal_x, goal_y)
+        if current_distance < best_distance:
+            best_pos = pos
+            best_distance = current_distance
+
         # Check all neighbors (up, down, left, right)
         for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
             neighbor_x = x + dx
@@ -163,6 +194,11 @@ def _astar(
 
             if neighbor_pos in blocked:
                 continue
+
+            # Check ledge restrictions (one-way movement)
+            if neighbor_pos in ledges:
+                if not _can_enter_ledge(ledges[neighbor_pos], dx, dy):
+                    continue
 
             if neighbor_pos in closed_set:
                 continue
@@ -180,7 +216,52 @@ def _astar(
             neighbor_node = (f_cost, tentative_g, neighbor_x, neighbor_y, pos)
             heapq.heappush(open_list, neighbor_node)
 
+    # Goal unreachable - return path to closest position
+    if best_pos != (start_x, start_y):
+        logger.info(f"Goal ({goal_x}, {goal_y}) unreachable, moving to closest point {best_pos} (distance: {best_distance})")
+        return _reconstruct_path(came_from, best_pos)
+
     return None
+
+
+def _can_enter_ledge(ledge_symbol: str, dx: int, dy: int) -> bool:
+    """
+    Check if movement in direction (dx, dy) can enter a ledge.
+
+    Ledges are one-way jumps:
+    - ↓ (Jump South): Can only enter from north (moving down, dy > 0)
+    - ↑ (Jump North): Can only enter from south (moving up, dy < 0)
+    - ← (Jump West): Can only enter from east (moving left, dx < 0)
+    - → (Jump East): Can only enter from west (moving right, dx > 0)
+    - Diagonal ledges: combination of above
+
+    Args:
+        ledge_symbol: Ledge direction symbol
+        dx: X movement delta (-1, 0, or 1)
+        dy: Y movement delta (-1, 0, or 1)
+
+    Returns:
+        True if can enter ledge from this direction
+    """
+    # Map ledge symbols to allowed entry directions
+    ledge_rules = {
+        '↓': (0, 1),    # Jump south: enter from north (moving down)
+        '↑': (0, -1),   # Jump north: enter from south (moving up)
+        '←': (-1, 0),   # Jump west: enter from east (moving left)
+        '→': (1, 0),    # Jump east: enter from west (moving right)
+        '↗': (1, -1),   # Jump northeast: enter moving right+up
+        '↖': (-1, -1),  # Jump northwest: enter moving left+up
+        '↘': (1, 1),    # Jump southeast: enter moving right+down
+        '↙': (-1, 1),   # Jump southwest: enter moving left+down
+    }
+
+    allowed_direction = ledge_rules.get(ledge_symbol)
+    if not allowed_direction:
+        # Unknown ledge symbol, treat as walkable
+        return True
+
+    # Check if movement direction matches allowed direction
+    return (dx, dy) == allowed_direction
 
 
 def _heuristic(x1: int, y1: int, x2: int, y2: int) -> int:

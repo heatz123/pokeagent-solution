@@ -329,7 +329,12 @@ def convert_state_to_dict(state_data):
             formatted["movement_preview"] = movement_preview
 
     # Generate ASCII map using stitched map data (global coordinates)
-    if map_data.get('tiles') and player_data.get('position'):
+    # Even without tiles, try to generate from cached map data if we have
+    # map_bank/map_number and player_position
+    has_tiles = map_data.get('tiles')
+    has_map_id = (map_data.get('map_bank') is not None and
+                  map_data.get('map_number') is not None)
+    if player_data.get('position') and (has_tiles or has_map_id):
         ascii_map_data = _generate_ascii_map_from_stitched_data(map_data, player_data, player_location)
         if ascii_map_data:
             formatted["map"]["ascii_map"] = ascii_map_data["ascii_map"]

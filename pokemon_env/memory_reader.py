@@ -2817,7 +2817,7 @@ class PokemonEmeraldReader:
                 self._last_stitcher_save = timestamp
                 # Also save immediately on first update
                 self._map_stitcher.save_to_file()
-                
+
         except Exception as e:
             # print( Failed to update map stitcher: {e}")
             logger.debug(f"Failed to update map stitcher: {e}")

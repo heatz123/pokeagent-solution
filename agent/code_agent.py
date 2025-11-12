@@ -22,6 +22,37 @@ from utils.subtask_manager import SubtaskManager
 from utils.vlm_state import State, get_global_schema_registry, add_to_state_schema
 from utils.vlm_caller import VLMCaller
 from utils.context_summarizer import ContextSummarizer
+import re
+
+
+def extract_keywords(text: str, min_length: int = 3) -> set:
+    """
+    Extract meaningful keywords from text for knowledge filtering
+
+    Args:
+        text: Input text (location name or milestone description)
+        min_length: Minimum keyword length to keep
+
+    Returns:
+        Set of uppercase keywords
+    """
+    # Stop words to ignore
+    stop_words = {
+        "THE", "A", "AN", "IN", "AT", "TO", "FROM", "FOR", "OF", "AND",
+        "OR", "IS", "ARE", "WAS", "WERE", "BE", "BEEN", "BEING",
+        "THIS", "THAT", "THESE", "THOSE"
+    }
+
+    # Extract alphanumeric tokens
+    tokens = re.findall(r'\b[A-Za-z0-9]+\b', text.upper())
+
+    # Filter out stop words and short tokens
+    keywords = {
+        token for token in tokens
+        if token not in stop_words and len(token) >= min_length
+    }
+
+    return keywords
 
 
 class CodeAgent:
@@ -90,12 +121,16 @@ class CodeAgent:
         # Custom milestone completion tracking (client-side only)
         self.custom_milestone_completions = {}
 
+        # Load saved custom milestone completions
+        self._load_custom_milestone_completions()
+
         # Stuck detector (threshold=3)
         self.stuck_detector = StuckDetector(threshold=3)
 
         # Code caching
         self.last_generated_code = None
         self.code_generation_count = 0
+        self.current_policy_code = None  # Current policy for milestone logging
 
         # Execution error tracking
         self.last_execution_error = None
@@ -273,6 +308,7 @@ class CodeAgent:
                         self.subtask_manager.save_state(next_milestone_info['id'])
 
                     code = parsed.get('code', '')
+                    self.current_policy_code = code  # Update for milestone logging
 
                     # Update generation tracking (for 30-step timeout)
                     self.last_code_generation_step = self.step_count
@@ -281,6 +317,7 @@ class CodeAgent:
                     # Non-subtask mode
                     code = self._generate_new_code(game_state, is_stuck)
                     self.last_generated_code = code
+                    self.current_policy_code = code  # Update for milestone logging
                     self.code_generation_count += 1
                     self.last_code_generation_step = self.step_count
             else:
@@ -375,6 +412,24 @@ class CodeAgent:
         next_milestone_info = self.milestone_manager.get_next_milestone_info(augmented_milestones)
         current_milestone = next_milestone_info['id'] if next_milestone_info else 'unknown'
 
+        # Filter knowledge by keywords (common)
+        relevant_knowledge = None
+        if self.use_knowledge_base:
+            location = game_state.get('player', {}).get('location', '')
+
+            # Extract keywords from current map name only (not milestone desc)
+            keywords = extract_keywords(location)
+
+            # Get filtered knowledge entries (keyword-based)
+            # Can optionally include recent entries: always_include_recent=N
+            relevant_knowledge = self.knowledge_base.get_by_keywords(
+                keywords=keywords,
+                limit=100,
+                always_include_recent=0  # Set to N to always include recent N entries
+            )
+
+            print(f"📚 Knowledge: {len(relevant_knowledge)}/{len(self.knowledge_base)} entries (location: {location}, keywords: {keywords})")
+
         # Build prompt (branching!)
         if self.use_subtasks:
             # For subtask mode, get previous code from current_subtask if available
@@ -396,7 +451,7 @@ class CodeAgent:
                 # 추가 파라미터들 (재사용 섹션용)
                 execution_error=self.last_execution_error,
                 previous_code=previous_code_value,
-                knowledge_base=self.knowledge_base if self.use_knowledge_base else None,
+                knowledge_base=relevant_knowledge,  # Filtered knowledge
                 previous_analyses=self.previous_analyses,
                 execution_logs=self.execution_logs,
                 include_state_schema=False,  # State structure 불필요
@@ -414,7 +469,7 @@ class CodeAgent:
                 stuck_warning=stuck_warning,
                 previous_code=previous_code_raw,
                 execution_error=self.last_execution_error,
-                knowledge_base=self.knowledge_base if self.use_knowledge_base else None,
+                knowledge_base=relevant_knowledge,  # Filtered knowledge
                 previous_actions=previous_actions,
                 previous_analyses=self.previous_analyses,
                 execution_logs=self.execution_logs,
@@ -1056,6 +1111,21 @@ class CodeAgent:
     def _register_custom_milestones(self):
         """Register custom milestones with completion conditions"""
 
+        # Register all server milestones as custom milestones (state-based checks)
+        # This allows full Python control over milestone conditions for RL training
+        from utils.server_milestone_definitions import SERVER_MILESTONES
+
+        print(f"🔧 Registering {len(SERVER_MILESTONES)} server milestones as custom milestones...")
+        for milestone in SERVER_MILESTONES:
+            self.milestone_manager.add_custom_milestone(
+                milestone_id=milestone["id"],
+                description=milestone["description"],
+                insert_after=milestone["insert_after"],
+                check_fn=milestone["check_fn"],
+                category=milestone.get("category", "server")
+            )
+        print(f"✅ Server milestones registered as custom")
+
         # Example: Clock interaction in bedroom
         def check_clock_interact(game_state, action):
             """
@@ -1239,13 +1309,13 @@ class CodeAgent:
         for custom in self.milestone_manager.custom_milestones:
             milestone_id = custom["id"]
 
-            # Skip if already completed
-            if milestones.get(milestone_id, {}).get('completed', False):
+            # Skip if already completed (check custom completions only, ignore server)
+            if self.custom_milestone_completions.get(milestone_id, {}).get('completed', False):
                 continue
 
             # Check if previous milestone is completed
             insert_after_id = custom["insert_after"]
-            if not milestones.get(insert_after_id, {}).get('completed', False):
+            if insert_after_id and not milestones.get(insert_after_id, {}).get('completed', False):
                 continue
 
             # Check condition
@@ -1257,8 +1327,90 @@ class CodeAgent:
                         'completed': True,
                         'timestamp': time.time()
                     }
+                    # Log policy for imitation learning
+                    self._log_milestone_policy(milestone_id, custom)
+                    # Save custom milestone completions to file
+                    self._save_custom_milestone_completions()
             except Exception as e:
                 print(f"⚠️ Error checking custom milestone {milestone_id}: {e}")
+
+    def _log_milestone_policy(self, milestone_id, milestone_info):
+        """Log the policy (code) that completed a milestone for imitation learning"""
+        import os
+        import json
+
+        # Create policies directory if it doesn't exist
+        policies_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.pokeagent_cache', 'policies')
+        os.makedirs(policies_dir, exist_ok=True)
+
+        # Prepare policy data
+        policy = {
+            'milestone_id': milestone_id,
+            'description': milestone_info.get('description', ''),
+            'code': self.current_policy_code or '',
+            'step': self.step_count,
+            'timestamp': time.time(),
+            'code_generation_count': self.code_generation_count
+        }
+
+        # Save to file
+        policy_file = os.path.join(policies_dir, f"{milestone_id}.json")
+        try:
+            with open(policy_file, 'w') as f:
+                json.dump(policy, f, indent=2)
+            print(f"📝 Policy logged: {policy_file}")
+        except Exception as e:
+            print(f"⚠️ Failed to log policy for {milestone_id}: {e}")
+
+    def _load_custom_milestone_completions(self):
+        """Load custom milestone completions from cache file or environment-specified file"""
+        import os
+        import json
+
+        # Check for environment variable first (like server's LOAD_STATE)
+        env_file = os.environ.get("MILESTONE_COMPLETIONS_FILE")
+
+        if env_file:
+            # Use environment-specified file (can be absolute or relative path)
+            cache_file = env_file if os.path.isabs(env_file) else os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                env_file
+            )
+            print(f"📂 Using milestone completions from environment: {env_file}")
+        else:
+            # Default to .pokeagent_cache/custom_milestone_completions.json
+            cache_file = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                '.pokeagent_cache',
+                'custom_milestone_completions.json'
+            )
+
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    self.custom_milestone_completions = json.load(f)
+                print(f"✅ Loaded {len(self.custom_milestone_completions)} custom milestone completions from {cache_file}")
+            except Exception as e:
+                print(f"⚠️ Failed to load custom milestone completions: {e}")
+        else:
+            if env_file:
+                print(f"⚠️ Milestone completions file not found: {cache_file}")
+
+    def _save_custom_milestone_completions(self):
+        """Save custom milestone completions to cache file"""
+        import os
+        import json
+
+        cache_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.pokeagent_cache')
+        os.makedirs(cache_dir, exist_ok=True)
+
+        cache_file = os.path.join(cache_dir, 'custom_milestone_completions.json')
+
+        try:
+            with open(cache_file, 'w') as f:
+                json.dump(self.custom_milestone_completions, f, indent=2)
+        except Exception as e:
+            print(f"⚠️ Failed to save custom milestone completions: {e}")
 
     def _get_augmented_milestones(self, game_state):
         """

@@ -289,6 +289,12 @@ class KnowledgeAddRequest(BaseModel):
     step: int = 0
     milestone: str = "manual"
 
+class KnowledgeUpdateRequest(BaseModel):
+    """Request to update a knowledge entry"""
+    content: str
+    step: int = 0
+    milestone: str = "manual"
+
 # Helper function for extracting code from CodeAgent responses
 def extract_code_from_response(text):
     """Extract code from structured LLM response
@@ -966,9 +972,17 @@ async def generate_code(request: CodeGenerationRequest = None):
         state["visual"]["screenshot"].save(buffer, format='PNG')
         screenshot_base64 = base64.b64encode(buffer.getvalue()).decode()
 
-        # 3. Format state for LLM (reuse existing formatter)
-        from utils.state_formatter import format_state_for_llm
-        state_text = format_state_for_llm(state)
+        # 3. Format state for LLM (same as CodeAgent)
+        from utils.state_formatter import convert_state_to_dict, filter_state_for_llm
+        from utils.prompt_builder import PromptBuilder
+        from utils.config import PromptConfig
+
+        formatted_dict = convert_state_to_dict(state)
+        filtered_dict = filter_state_for_llm(formatted_dict)
+
+        config = PromptConfig()
+        prompt_builder = PromptBuilder(config)
+        state_text = prompt_builder.build_game_state_section(filtered_dict)
 
         # 4. Create prompt for code generation
         prompt = f"""You are an expert Pokemon Emerald AI agent. Analyze the game screenshot AND the state information below to write Python code that determines the best action.
@@ -1093,6 +1107,47 @@ NOW GENERATE THE CODE (respond with ONLY the Python code, no markdown):"""
             }
         )
 
+@app.get("/formatted_state")
+async def get_formatted_state():
+    """
+    Get current game state formatted for LLM (same format as CodeAgent uses)
+
+    This endpoint provides the state in the exact format that:
+    1. The agent's code execution environment sees
+    2. The LLM generates code against
+
+    Used by playground VIEW STATE button to show real-time formatted state
+    """
+    global env
+
+    if env is None:
+        raise HTTPException(status_code=400, detail="Emulator not initialized")
+
+    try:
+        # Get raw state
+        with memory_lock:
+            raw_state = env.get_comprehensive_state()
+
+        # Process state exactly like CodeAgent does
+        from utils.state_formatter import convert_state_to_dict, filter_state_for_llm, format_state_for_llm
+
+        # Step 1: Convert and filter (what run(state) receives)
+        formatted_dict = convert_state_to_dict(raw_state)
+        filtered_dict = filter_state_for_llm(formatted_dict)
+
+        # Step 2: Format for LLM prompt (what LLM sees as text)
+        formatted_text = format_state_for_llm(raw_state)
+
+        return {
+            "success": True,
+            "formatted_state": formatted_text,  # What LLM sees in prompt (text)
+            "state_dict": filtered_dict  # What run(state) receives (filtered dict)
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting formatted state: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/execute_code")
 async def execute_code(request: CodeExecutionRequest):
     """Execute user Python code and perform the resulting action"""
@@ -1109,12 +1164,17 @@ async def execute_code(request: CodeExecutionRequest):
         print("🔵 [execute_code] Acquiring memory_lock...")
         with memory_lock:
             print("🔵 [execute_code] Lock acquired, calling get_comprehensive_state()...")
-            state = env.get_comprehensive_state()
-            print(f"🔵 [execute_code] Got state with {len(state)} keys")
+            raw_state = env.get_comprehensive_state()
+            print(f"🔵 [execute_code] Got raw state with {len(raw_state)} keys")
+
+        # Convert to CodeAgent format (IMPORTANT: same format as agent's code execution sees!)
+        from utils.state_formatter import convert_state_to_dict
+        state = convert_state_to_dict(raw_state)
+        print(f"🔵 [execute_code] Converted to dict format with {len(state)} keys")
 
         # Load tools for use in playground code
         from utils.tool_loader import load_tools
-        tools = load_tools('tools')
+        tools = load_tools('tools', force_reload=True)
 
         # Execute user code in a namespace with state and tools
         namespace = {
@@ -2077,6 +2137,49 @@ async def add_knowledge(request: KnowledgeAddRequest):
     except Exception as e:
         logger.error(f"Error adding knowledge: {e}")
         raise HTTPException(status_code=500, detail=f"Error adding knowledge: {str(e)}")
+
+@app.delete("/knowledge/{entry_id}")
+async def delete_knowledge_entry(entry_id: str):
+    """Delete a specific knowledge entry by ID"""
+    global knowledge_base
+    try:
+        success = knowledge_base.delete_by_id(entry_id)
+        if success:
+            return {
+                "success": True,
+                "message": f"Knowledge entry {entry_id} deleted successfully"
+            }
+        else:
+            raise HTTPException(status_code=404, detail=f"Knowledge entry {entry_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting knowledge entry: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting knowledge: {str(e)}")
+
+@app.put("/knowledge/{entry_id}")
+async def update_knowledge_entry(entry_id: str, request: KnowledgeUpdateRequest):
+    """Update a specific knowledge entry by ID"""
+    global knowledge_base
+    try:
+        success = knowledge_base.update_by_id(
+            entry_id=entry_id,
+            new_content=request.content,
+            step=request.step,
+            milestone=request.milestone
+        )
+        if success:
+            return {
+                "success": True,
+                "message": f"Knowledge entry {entry_id} updated successfully"
+            }
+        else:
+            raise HTTPException(status_code=404, detail=f"Knowledge entry {entry_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating knowledge entry: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating knowledge: {str(e)}")
 
 @app.delete("/knowledge")
 async def clear_knowledge():

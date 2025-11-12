@@ -236,9 +236,10 @@ class MapStitcher:
         """Update or create a map area with new data"""
         map_id = self.get_map_id(map_bank, map_number)
         
-        # Skip map 0 (startup/initialization state) as it's not a real location
-        if map_id == 0:
-            logger.debug(f"Skipping map 0 (startup state)")
+        # Skip map 0 only if it's truly a startup/initialization state
+        # Note: Petalburg City has map_id=0x00 but is a valid location!
+        if map_id == 0 and (not location_name or location_name.strip() == "" or location_name == "Unknown"):
+            logger.debug(f"Skipping map 0 (startup state with no valid location)")
             return
         
         # Validate map ID is reasonable
@@ -841,9 +842,9 @@ class MapStitcher:
             with open(self.save_file, 'w') as f:
                 # Save in minified format to reduce file size
                 json.dump(data, f, separators=(',', ':'))
-            
+
             logger.debug(f"Saved map stitching data to {self.save_file}")
-            
+
         except Exception as e:
             logger.error(f"Failed to save map stitching data: {e}")
     
@@ -865,12 +866,7 @@ class MapStitcher:
             # Restore map areas (with map_data for world map display)
             for map_id_str, area_data in data.get("map_areas", {}).items():
                 map_id = int(map_id_str)
-                
-                # Skip map 0 during loading as well (cleanup old data)
-                if map_id == 0:
-                    logger.debug(f"Skipping load of map 0 (startup state) during file load")
-                    continue
-                    
+
                 # Try to resolve location name if it's Unknown or missing
                 location_name = area_data.get("location_name")
                 if not location_name or location_name == "Unknown":
@@ -883,7 +879,13 @@ class MapStitcher:
                         # Fallback for unknown map IDs
                         location_name = f"Map_{map_id:04X}"
                         logger.debug(f"Unknown map ID {map_id:04X} during load, using fallback name")
-                
+
+                # Skip map 0 only if it's truly a startup/initialization state
+                # Note: Petalburg City has map_id=0x00 but is a valid location!
+                if map_id == 0 and (not location_name or location_name.strip() == "" or location_name == "Unknown"):
+                    logger.debug(f"Skipping load of map 0 (startup state with no valid location)")
+                    continue
+
                 # Reconstruct full map data from trimmed version
                 trimmed_data = area_data.get("map_data", [])
                 trim_offsets = area_data.get("trim_offsets", {})
