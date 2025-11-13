@@ -610,7 +610,7 @@ REASONING:
 CODE:
 [Your final Python code - define a function called 'run' that takes 'state' as parameter and returns ONE action string OR a list of actions.
 Add brief comments explaining your logic. Keep it simple and focused.
-IMPORTANT: All navigation decisions MUST be coordinate-based using state['player']['position']['x'] and state['player']['position']['y'] - compare current position with target coordinates from ANALYSIS to determine movement direction.
+IMPORTANT: All navigation decisions MUST be using the `find_path_action` tool.
 NOTE: Pre-loaded helper functions from AVAILABLE TOOLS section can be called directly without imports.]
 
 REQUIREMENTS:
@@ -624,52 +624,61 @@ REQUIREMENTS:
         return '''EXAMPLE RESPONSE:
 
 ANALYSIS:
-The frame is the moving van interior at game start. There are no mandatory dialogues here before exiting. The exit trigger is on the right edge of the van interior. Holding right will deterministically walk the player to the exit and transition to the next scene.
+The frame is the moving van interior at game start. There are no mandatory dialogues here before exiting. The exit trigger is on the right edge of the van interior. From the knowledge base, the door is located at coordinates (7, 8).
 
 OBJECTIVES:
 Milestone: "Exit the moving van."
 Success when the location changes from the van interior to the house (e.g., Mom's house 1F) or an outdoor/entrance transition occurs.
 
 PLAN:
-Use a one-action policy: always return 'right' each step until the scene changes. No branching, no checks—this keeps the example minimal and robust for this specific milestone.
+Find the door or stairs coordinates from knowledge base entries (e.g., "[WARP] door at (7, 8)"), then call find_path_action to navigate there. Once adjacent, press 'right' once to trigger the exit—minimal logic needed.
 
 REASONING:
-In this room, moving right is both sufficient and optimal: it requires no interaction, has no hazards, and deterministically triggers the exit. Simplicity here reduces surface area for mistakes and keeps the example focused.
+The knowledge base stores discovered warp locations with coordinates, eliminating the need to search the map each time. Using find_path_action with these known coordinates is efficient and robust. Once adjacent to the exit, a single 'right' press completes the interaction.
 
 CODE:
 ```python
 def run(state):
     """
-    Minimal policy for the milestone: Exit the moving van.
-    Always returns 'right' to walk toward the exit trigger on the right edge.
-    This intentionally avoids conditional logic to serve as a simple, optimal example.
+    Policy for milestone: Exit the moving van.
+    Uses find_path_action to navigate to the exit door at (7, 8).
     """
-    # No state inspection needed; the van exit is reached by moving right.
-    return 'right'
+    # Door coordinates determined from ANALYSIS/knowledge base
+    door_x, door_y = 7, 8
+
+    player_x = state['player']['position']['x']
+    player_y = state['player']['position']['y']
+
+    # If already adjacent to door, press right to trigger exit
+    if abs(player_x - door_x) <= 1 and abs(player_y - door_y) <= 1:
+        return 'right'
+
+    # Otherwise, use pathfinding to navigate there
+    return find_path_action(state, door_x, door_y)
 ```
 
 ---
 EXAMPLE WITH LOGGING:
 
 ANALYSIS:
-Looking at the frame, I can see we're in the bedroom with a clock on the wall. The player is at position (5, 2). I need to interact with the clock to set it, which requires moving up and pressing A.
+Looking at the frame, I can see we're in the bedroom with a clock on the wall. The player is at position (5, 2). From the knowledge base, the clock object is at coordinates (5, 1). I need to interact with the clock to set it.
 
 OBJECTIVES:
 Milestone: "Set the clock"
 Need to interact with the clock to open its UI and set the time.
 
 PLAN:
-Move up to position (5, 1) where the clock is, then press A to interact. Use logging to track progress and help with debugging.
+Navigate to position (5, 2) below the clock using find_path_action, then press up and A to interact. Use logging to track progress and help with debugging.
 
 REASONING:
-Logging helps debug and track what the code is doing. This is especially useful when diagnosing stuck situations or understanding the decision flow. The logs will appear in the next prompt under EXECUTION LOGS section.
+Logging helps debug and track what the code is doing. This is especially useful when diagnosing stuck situations or understanding the decision flow. The logs will appear in the next prompt under EXECUTION LOGS section. Using find_path_action ensures reliable navigation.
 
 CODE:
 ```python
 def run(state):
     """
     Policy for clock interaction with logging.
-    Uses log() to record debug information for future reference.
+    Uses log() and find_path_action to navigate to clock at (5, 1).
     """
     player_x = state['player']['position']['x']
     player_y = state['player']['position']['y']
@@ -678,28 +687,20 @@ def run(state):
     log(f"Current position: ({player_x}, {player_y})")
     log(f"Location: {location}")
 
-    # Check if we're at the right position (5, 2)
-    if player_x == 5 and player_y == 2:
-        log("At clock position! Moving up and interacting")
+    # Clock is at (5, 1) - determined from ANALYSIS/knowledge base
+    clock_x, clock_y = 5, 1
+
+    # Check if we're adjacent to the clock (at position 5, 2)
+    if player_x == clock_x and player_y == clock_y + 1:
+        log("Adjacent to clock! Moving up and interacting")
         return ['up', 'a']
-    elif player_x == 5 and player_y == 1:
-        log("Already at clock, just pressing A")
+    elif player_x == clock_x and player_y == clock_y:
+        log("Already at clock position, just pressing A")
         return 'a'
     else:
-        # Navigate to clock position first
+        # Navigate to position below clock (5, 2) using pathfinding
         log(f"Navigating to clock from ({player_x}, {player_y})")
-        if player_x < 5:
-            log("Moving right")
-            return 'right'
-        elif player_x > 5:
-            log("Moving left")
-            return 'left'
-        elif player_y < 2:
-            log("Moving down")
-            return 'down'
-        else:
-            log("Moving up")
-            return 'up'
+        return find_path_action(state, clock_x, clock_y + 1)
 ```
 
 IMPORTANT NOTES ON log() FUNCTION:

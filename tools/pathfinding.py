@@ -30,6 +30,13 @@ def find_path_action(state: dict, goal_x: int, goal_y: int, max_distance: int = 
         # Navigate to stairs at position (10, 5)
         action = find_path_action(state, goal_x=10, goal_y=5)
         return action
+
+        # Common pattern: Navigate to another map when warp coordinates are unknown
+        # but connection data shows it's connected to the left/right/top/bottom edge
+        if map == "PALLET_TOWN":
+            # Connection shows next map is connected to left edge at y=7
+            action = find_path_action(state, goal_x=-1, goal_y=7)
+            return action
     """
     try:
         # 1. Extract current position (world coordinates)
