@@ -12,6 +12,7 @@ import json
 import base64
 import signal
 import random
+from typing import Dict, Any, Optional, List
 from utils.llm_logger import get_llm_logger
 from utils.state_formatter import convert_state_to_dict, filter_state_for_llm
 from utils.milestone_manager import MilestoneManager
@@ -150,7 +151,7 @@ class CodeAgent:
         self.knowledge_base = KnowledgeBase() if self.use_knowledge_base else None
 
         # VLM caller for visual observations (Gemini or Ollama)
-        vlm_model = os.getenv("VLM_MODEL", "gemini-2.5-flash-lite")
+        vlm_model = os.getenv("VLM_MODEL", "qwen3-vl:8b-instruct-q4_K_M")
         self.vlm_caller = VLMCaller(model=vlm_model)
 
         # Context summarization settings
@@ -172,6 +173,9 @@ class CodeAgent:
 
         # Track last action for custom milestone checking
         self._last_action = None
+
+        # Track last facing direction for custom milestone checking
+        self._last_facing = None
 
         # Execution logs from code runs (for debugging and context)
         self.execution_logs = []  # List of (step_count, message) tuples
@@ -208,6 +212,19 @@ class CodeAgent:
 
         # Add prev_action to game_state immediately (single source of truth)
         game_state["prev_action"] = self._last_action if self._last_action else "no_op"
+
+        # Update facing based on prev_action (direction keys update facing)
+        if self._last_action in ['up', 'down', 'left', 'right']:
+            facing_map = {
+                'up': 'north',
+                'down': 'south',
+                'left': 'west',
+                'right': 'east'
+            }
+            self._last_facing = facing_map[self._last_action]
+
+        # Add facing to game_state
+        game_state["facing"] = self._last_facing if self._last_facing else "north"
 
         try:
             # 1. Get milestone info (common)
@@ -370,6 +387,107 @@ class CodeAgent:
             traceback.print_exc()
             return {'action': 'b'}  # Default action on error
 
+    def generate_policy_code(
+        self,
+        game_state: Dict[str, Any],
+        execution_error: Optional[Dict[str, Any]] = None,
+        screenshot_history: Optional[List[tuple]] = None
+    ) -> str:
+        """
+        Generate policy code without execution (for curriculum learning)
+
+        This method reuses all existing infrastructure from _generate_new_code():
+        - PromptBuilder and all prompt sections
+        - Knowledge base filtering
+        - Milestone context
+        - LLM calling
+        - Code extraction
+
+        Args:
+            game_state: Game state dict (same format as step())
+            execution_error: Optional error from previous attempt
+                - 'error': Error message
+                - 'code': Failed code
+                - 'traceback': Full traceback/history
+            screenshot_history: Optional screenshot history from previous attempt
+                - List of (step_count, PIL.Image) tuples (last ~10 frames)
+
+        Returns:
+            Generated policy code as string
+        """
+        import time
+
+        # Reload tools (like _generate_new_code does)
+        from utils.tool_loader import load_tools
+        self.tools = load_tools('tools', force_reload=True)
+
+        # Convert and filter state for LLM
+        formatted = convert_state_to_dict(game_state)
+        filtered = filter_state_for_llm(formatted)
+
+        # Get screenshots
+        # If we have screenshot history from previous attempt, use it (last ~10 frames)
+        # Otherwise, just use current frame
+        if screenshot_history:
+            frames_to_send = screenshot_history
+        else:
+            frame = game_state.get('frame')
+            frames_to_send = [(self.step_count, frame)] if frame else []
+
+        # Get milestone info
+        augmented_milestones = self._get_augmented_milestones(game_state)
+        next_milestone_info = self.milestone_manager.get_next_milestone_info(augmented_milestones)
+
+        # Filter knowledge by location
+        relevant_knowledge = None
+        if self.use_knowledge_base:
+            location = game_state.get('player', {}).get('location', '')
+            relevant_knowledge = self.knowledge_base.get_by_keywords(
+                query_text=location,
+                limit=100,
+                always_include_recent=0
+            )
+
+        # Build prompt (reusing PromptBuilder infrastructure)
+        # execution_error is automatically handled by prompt_builder!
+        prompt = self.prompt_builder.build_prompt(
+            formatted_state=filtered,
+            next_milestone_info=next_milestone_info,
+            current_subtask=None,  # Not used in curriculum mode
+            stuck_warning="",  # Not used (execution_error replaces this)
+            previous_code="",  # execution_error contains the code
+            execution_error=execution_error,  # ← Key: previous attempt history!
+            knowledge_base=relevant_knowledge,
+            previous_actions=[],  # Fresh start
+            previous_analyses=self.previous_analyses,
+            execution_logs=[],  # Fresh start
+            num_screenshots=len(frames_to_send) if frames_to_send else 1
+        )
+
+        # Call LLM with timing
+        start_time = time.time()
+        response = self._call_llm(prompt, frames_to_send)
+        duration = time.time() - start_time
+
+        # Log interaction (same as _generate_new_code does)
+        self.llm_logger.log_interaction(
+            interaction_type="code_generation",
+            prompt=prompt,
+            response=response,
+            duration=duration,
+            model_info={"model": self.model, "tokens": {"prompt": 0, "completion": 0}}
+        )
+
+        # Extract code
+        code = self._extract_code(response)
+
+        # Extract and store ANALYSIS section (reuse existing infrastructure)
+        analysis_text = self._extract_analysis(response)
+        if analysis_text:
+            self.previous_analyses.append((self.step_count, analysis_text))
+
+        return code
+
     def _generate_new_code(
         self,
         game_state,
@@ -417,18 +535,14 @@ class CodeAgent:
         if self.use_knowledge_base:
             location = game_state.get('player', {}).get('location', '')
 
-            # Extract keywords from current map name only (not milestone desc)
-            keywords = extract_keywords(location)
-
-            # Get filtered knowledge entries (keyword-based)
-            # Can optionally include recent entries: always_include_recent=N
+            # Get filtered knowledge entries (LCS-based search)
             relevant_knowledge = self.knowledge_base.get_by_keywords(
-                keywords=keywords,
+                query_text=location,
                 limit=100,
-                always_include_recent=0  # Set to N to always include recent N entries
+                always_include_recent=0
             )
 
-            print(f"📚 Knowledge: {len(relevant_knowledge)}/{len(self.knowledge_base)} entries (location: {location}, keywords: {keywords})")
+            print(f"📚 Knowledge: {len(relevant_knowledge)}/{len(self.knowledge_base)} entries (location: {location})")
 
         # Build prompt (branching!)
         if self.use_subtasks:
@@ -645,48 +759,24 @@ class CodeAgent:
             return response.output_text
 
         elif self.provider == "claude":
-            # Claude format
-            content = [{"type": "text", "text": prompt}]
-            total = len(frames_with_steps)
+            # Claude format - using helper methods for cleaner code
+            messages = self._build_claude_messages(prompt, frames_with_steps)
 
-            # Add multiple images with labels (reversed: newest first)
-            for i, (step, frame) in enumerate(frames_with_steps, 1):
-                # Add label before each image
-                if step is not None:
-                    if i == 1:
-                        # First screenshot = current state
-                        label = f"[CURRENT STATE ⭐] Screenshot 1/{total} (Step {step}):"
-                    elif i < total:
-                        # Middle screenshots = recent history
-                        steps_ago = i - 1
-                        label = f"[History -{steps_ago} steps ago] Screenshot {i}/{total} (Step {step}):"
-                    else:
-                        # Last screenshot = oldest
-                        steps_ago = i - 1
-                        label = f"[OLDEST, -{steps_ago} steps ago] Screenshot {i}/{total} (Step {step}):"
-                else:
-                    label = f"Screenshot {i}:"
+            # Get max_tokens from environment or use default
+            max_tokens = int(os.getenv("CLAUDE_MAX_TOKENS", "4096"))
 
-                content.append({"type": "text", "text": label})
-
-                # Add image
-                screenshot_b64 = self._get_screenshot_base64_from_frame(frame)
-                if screenshot_b64:
-                    content.append({
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/png",
-                            "data": screenshot_b64
-                        }
-                    })
-
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": content}]
-            )
-            return response.content[0].text
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    messages=messages
+                )
+                return response.content[0].text
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Claude API error: {e}")
+                raise
 
         else:  # gemini
             # Gemini format - uses PIL Image directly
@@ -725,6 +815,66 @@ class CodeAgent:
                     response = self.client.generate_content([prompt])
 
             return response.text
+
+    def _get_screenshot_label(self, index: int, step: int, total: int) -> str:
+        """
+        Generate screenshot label for LLM context
+
+        Args:
+            index: Screenshot index (1-based)
+            step: Step number when screenshot was taken
+            total: Total number of screenshots
+
+        Returns:
+            Formatted label string
+        """
+        if step is not None:
+            if index == 1:
+                # First screenshot = current state
+                return f"[CURRENT STATE ⭐] Screenshot 1/{total} (Step {step}):"
+            elif index < total:
+                # Middle screenshots = recent history
+                steps_ago = index - 1
+                return f"[History -{steps_ago} steps ago] Screenshot {index}/{total} (Step {step}):"
+            else:
+                # Last screenshot = oldest
+                steps_ago = index - 1
+                return f"[OLDEST, -{steps_ago} steps ago] Screenshot {index}/{total} (Step {step}):"
+        return f"Screenshot {index}:"
+
+    def _build_claude_messages(self, prompt: str, frames_with_steps: list) -> list:
+        """
+        Build Claude API message format with images
+
+        Args:
+            prompt: Text prompt
+            frames_with_steps: List of (step, PIL.Image) tuples
+
+        Returns:
+            List of messages in Claude format
+        """
+        content = [{"type": "text", "text": prompt}]
+        total = len(frames_with_steps)
+
+        # Add multiple images with labels (reversed: newest first)
+        for i, (step, frame) in enumerate(frames_with_steps, 1):
+            # Add label before each image
+            label = self._get_screenshot_label(i, step, total)
+            content.append({"type": "text", "text": label})
+
+            # Add image
+            screenshot_b64 = self._get_screenshot_base64_from_frame(frame)
+            if screenshot_b64:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": screenshot_b64
+                    }
+                })
+
+        return [{"role": "user", "content": content}]
 
     def _extract_code(self, text):
         """Extract code from structured LLM response"""
@@ -1110,190 +1260,10 @@ class CodeAgent:
 
     def _register_custom_milestones(self):
         """Register custom milestones with completion conditions"""
+        from utils.milestone_registration import register_all_milestones
 
-        # Register all server milestones as custom milestones (state-based checks)
-        # This allows full Python control over milestone conditions for RL training
-        from utils.server_milestone_definitions import SERVER_MILESTONES
-
-        print(f"🔧 Registering {len(SERVER_MILESTONES)} server milestones as custom milestones...")
-        for milestone in SERVER_MILESTONES:
-            self.milestone_manager.add_custom_milestone(
-                milestone_id=milestone["id"],
-                description=milestone["description"],
-                insert_after=milestone["insert_after"],
-                check_fn=milestone["check_fn"],
-                category=milestone.get("category", "server")
-            )
-        print(f"✅ Server milestones registered as custom")
-
-        # Example: Clock interaction in bedroom
-        def check_clock_interact(game_state, action):
-            """
-            Check if clock interaction happened:
-            - Player at position (5, 2) - the tile BEFORE moving up to the clock
-            - Action: exactly ['up', 'a'] sequence (move up to clock, then interact)
-
-            Note: We check position BEFORE action execution, so we check (5,2) not (5,1).
-            Action sequence must be exactly 2 actions in order.
-            Single actions or sequences longer than 2 will not count.
-            """
-            player = game_state.get("player", {})
-            pos = player.get("position", {})
-
-            # Must be at position (5,2) - the tile before moving up to clock at (5,1)
-            if not (pos.get("x") == 5 and pos.get("y") == 2):
-                return False
-
-            # Must be a list action with exactly ['up', 'a']
-            if isinstance(action, list):
-                return (len(action) == 2 and
-                        action[0] == 'up' and
-                        action[1] == 'a')
-
-            # Single actions don't count
-            return False
-
-        # Add to milestone manager
-        self.milestone_manager.add_custom_milestone(
-            milestone_id="CLOCK_INTERACT",
-            description="From position (5,2) in player bedroom, execute action sequence ['up', 'a'] to move up to the clock and interact with it",
-            insert_after="PLAYER_BEDROOM",
-            check_fn=check_clock_interact,
-            category="custom"
-        )
-
-        # Example: Leave the house (same condition as CLOCK_SET)
-        def check_leave_house(game_state, action):
-            """
-            Check if player left the house (same logic as CLOCK_SET):
-            - Player location must be in Littleroot Town
-            - NOT in any house or lab (outside)
-
-            Note: This is a location-based check, action parameter is not used.
-            Prerequisite check (CLOCK_INTERACT completed) is handled by _check_custom_milestones.
-            """
-            player = game_state.get("player", {})
-            location = player.get("location", "")
-            location_upper = str(location).upper()
-
-            # In Littleroot but NOT in either house or lab
-            return ("LITTLEROOT" in location_upper and
-                    "HOUSE" not in location_upper and
-                    "LAB" not in location_upper)
-
-        # Add to milestone manager
-        self.milestone_manager.add_custom_milestone(
-            milestone_id="LEAVE_HOUSE",
-            description="Leave the house and return to Littleroot Town (outside)",
-            insert_after="CLOCK_INTERACT",
-            check_fn=check_leave_house,
-            category="custom"
-        )
-
-        # May interaction on Route 103
-        def check_may_interaction(game_state, action):
-            """
-            Check if May interaction/battle happened on Route 103:
-            - Must be on Route 103
-            - Dialog text contains 'MAY' or battle-related keywords
-
-            Note: This is a dialog-based check, action parameter is not used.
-            """
-            # Check location first
-            player = game_state.get("player", {})
-            location = player.get("location", "")
-            location_upper = str(location).upper()
-
-            # Must be on Route 103
-            if not "ROUTE 103" in location_upper:
-                return False
-
-            # Check dialog text for May or battle keywords
-            dialog_text = game_state.get("game", {}).get("dialog_text") or ""
-
-            # Check for May's name or battle-related text
-            return "MAY: I think I know" in dialog_text
-
-        # Add to milestone manager
-        self.milestone_manager.add_custom_milestone(
-            milestone_id="MAY_ROUTE103_INTERACTION",
-            description="Interact with May on Route 103 (dialog contains MAY, BATTLE, or TRAINER keywords)",
-            insert_after="ROUTE_103",
-            check_fn=check_may_interaction,
-            category="dialog"
-        )
-
-        # Pokedex dialog confirmation
-        def check_pokedex_dialog(game_state, action):
-            """
-            Check if Pokedex dialog text appeared in Birch's lab:
-            - Must be in Birch's lab location
-            - Dialog text contains 'POKéDEX', 'POKEDEX', or variants (é is unicode U+00E9)
-
-            Note: This is a dialog-based check, action parameter is not used.
-            """
-            # Check location first
-            player = game_state.get("player", {})
-            location = player.get("location", "")
-            location_upper = str(location).upper()
-
-            # Must be in Birch's lab
-            if "LITTLEROOT TOWN PROFESSOR BIRCHS LAB" not in location_upper:
-                return False
-
-            # Check dialog text
-            dialog_text = game_state.get("game", {}).get("dialog_text") or ""
-            dialog_upper = str(dialog_text).upper()
-
-            # Check multiple variants (é with acute accent, regular e, etc.)
-            return ("POKEDEX" in dialog_upper or
-                    "POKÉDEX" in dialog_upper or
-                    "POKéDEX" in dialog_upper or
-                    "POKEDE'X" in dialog_upper or
-                    # Fallback: contains both "POK" and "DEX"
-                    ("POK" in dialog_upper and "DEX" in dialog_upper))
-
-        # Add to milestone manager
-        self.milestone_manager.add_custom_milestone(
-            milestone_id="POKEDEX_DIALOG_CONFIRMED",
-            description="Pokedex dialog text appeared in Birch's lab (POKEDEX or POKEDE'X in dialog at PROFESSOR BIRCHS LAB)",
-            insert_after="MAY_ROUTE103_INTERACTION",
-            check_fn=check_pokedex_dialog,
-            category="dialog"
-        )
-
-        # Dad dialog confirmation at Petalburg Gym
-        def check_dad_dialog(game_state, action):
-            """
-            Check if Dad dialog appeared at Petalburg Gym:
-            - Must be in Petalburg City Gym
-            - Dialog text contains 'DAD:'
-
-            Note: This is a dialog-based check, action parameter is not used.
-            """
-            # Check location first
-            player = game_state.get("player", {})
-            location = player.get("location", "")
-            location_upper = str(location).upper()
-
-            # Must be in Petalburg City Gym
-            if not ("PETALBURG CITY GYM" in location_upper or "PETALBURG_CITY_GYM" in location_upper):
-                return False
-
-            # Check dialog text for Dad
-            dialog_text = game_state.get("game", {}).get("dialog_text") or ""
-            dialog_upper = str(dialog_text).upper()
-
-            return "DAD:" in dialog_upper
-
-        # Add to milestone manager
-        self.milestone_manager.add_custom_milestone(
-            milestone_id="DAD_DIALOG_CONFIRMED",
-            description="Dad dialog appeared at Petalburg Gym (DAD: in dialog at PETALBURG CITY GYM)",
-            insert_after="DAD_FIRST_MEETING",
-            check_fn=check_dad_dialog,
-            category="dialog"
-        )
+        # Use centralized registration (shared with MilestoneTrainer)
+        register_all_milestones(self.milestone_manager)
 
     def _check_custom_milestones(self, game_state, action):
         """
