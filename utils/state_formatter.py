@@ -19,6 +19,53 @@ from utils import state_formatter as sf
 
 logger = logging.getLogger(__name__)
 
+# Load maps_ascii.json at module level
+_MAPS_ASCII = None
+def _load_maps_ascii():
+    """Load maps_ascii.json once at module level."""
+    global _MAPS_ASCII
+    if _MAPS_ASCII is None:
+        maps_ascii_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'maps_ascii.json')
+        try:
+            with open(maps_ascii_path, 'r') as f:
+                _MAPS_ASCII = json.load(f)
+            logger.info(f"Loaded {len(_MAPS_ASCII)} maps from maps_ascii.json")
+        except Exception as e:
+            logger.error(f"Failed to load maps_ascii.json: {e}")
+            _MAPS_ASCII = {}
+    return _MAPS_ASCII
+
+def _location_name_to_layout_key(location_name):
+    """Convert location name to LAYOUT_* key format.
+
+    Examples:
+        "Petalburg City" -> "LAYOUT_PETALBURG_CITY"
+        "Route 101" -> "LAYOUT_ROUTE101"
+        "Player's House 1F" -> "LAYOUT_PLAYERS_HOUSE_1F"
+
+    Args:
+        location_name: The location name from game state
+
+    Returns:
+        The LAYOUT_* key to lookup in maps_ascii.json
+    """
+    if not location_name:
+        return None
+
+    # Remove special characters
+    import re
+    cleaned = re.sub(r"['\-]", '', location_name)
+
+    # Special handling for "Route XXX" format - remove space before number
+    # "Route 101" -> "ROUTE101", not "ROUTE_101"
+    cleaned = re.sub(r'Route\s+(\d+)', r'Route\1', cleaned, flags=re.IGNORECASE)
+
+    # Replace remaining spaces with underscores and convert to uppercase
+    normalized = cleaned.replace(' ', '_').upper()
+
+    # Add LAYOUT_ prefix
+    return f"LAYOUT_{normalized}"
+
 # Global location tracking - MapStitcher handles all persistent storage
 CURRENT_LOCATION = None
 LAST_LOCATION = None
@@ -319,6 +366,11 @@ def convert_state_to_dict(state_data):
         "prev_action": state_data.get('prev_action', 'no_op')
     }
 
+    # Add action-based facing if available (from milestone_trainer or CodeAgent)
+    # This is reliable (based on actual actions taken) unlike memory-based facing
+    if 'facing' in state_data:
+        formatted['player']['facing'] = state_data['facing']
+
     # Add movement preview if in overworld (not in battle or title)
     player_location = player_data.get('location', '')
     if (game_data.get('game_state') == 'overworld' and
@@ -357,8 +409,9 @@ def filter_state_for_llm(state_dict):
     This is the central filtering function that removes:
     - milestones: Formatted separately in prompts
     - movement_preview: Not needed for CodeAgent
-    - facing: Unreliable orientation data
     - npcs: Unreliable position data
+
+    Note: player.facing is now KEPT (action-based, reliable) unlike memory-based facing
 
     Args:
         state_dict (dict): State dictionary from convert_state_to_dict()
@@ -375,18 +428,15 @@ def filter_state_for_llm(state_dict):
     filtered.pop('milestones', None)           # Formatted separately
     filtered.pop('movement_preview', None)     # Not needed for CodeAgent
 
-    # 2. Remove unreliable player_position.facing
-    if 'map' in filtered and 'player_position' in filtered['map']:
-        if isinstance(filtered['map']['player_position'], dict):
-            filtered['map']['player_position'].pop('facing', None)
-
-    # 3. Remove unreliable NPCs data
+    # 2. Remove unreliable NPCs data
     if 'map' in filtered:
         filtered['map'].pop('npcs', None)
+    
+    if 'game' in filtered:
+        filtered['game'].pop('time', None)
 
-    # 3. Remove unreliable NPCs data
-    if 'map' in filtered:
-        filtered['map'].pop('npcs', None)
+    # Note: player.facing and map.player_position.facing are now kept
+    # They are action-based (reliable) rather than memory-based (unreliable)
 
     return filtered
 
@@ -460,22 +510,22 @@ def _extract_object_positions_from_area(area):
 
 def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=None):
     """
-    Generate ASCII map using stitched map data from MapStitcher (global coordinates).
+    Generate ASCII map using maps_ascii.json.
 
-    This replaces the old grid-based approach with a full ASCII visualization of the
-    current map area using accumulated map data.
+    Looks up the pre-defined ASCII map from maps_ascii.json based on location name.
+    If map not found, raises an error.
 
     Args:
         map_data: Map information dict (with tiles, map_bank, map_number)
         player_data: Player information dict
-        location_name: Optional location name for context
+        location_name: Location name for lookup (e.g., "Petalburg City")
 
     Returns:
         dict: {
-            "ascii_map": list of str (ASCII map rows from game coord 0,0 to explored max),
+            "ascii_map": list of str (ASCII map rows),
             "legend": list of str (dynamic legend),
             "player_position": dict (x, y, facing),
-            "warps": list (warp information)
+            "warps": list (warp information - empty for now)
         } or None if data not available
     """
     from utils.map_formatter import generate_dynamic_legend
@@ -486,81 +536,38 @@ def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=
     player_y = player_pos.get('y', 0)
     player_facing = player_data.get('facing', 'South')
 
-    # Get map bank and number to identify current map
-    map_bank = map_data.get('map_bank', 0)
-    map_number = map_data.get('map_number', 0)
-    current_map_id = (map_bank << 8) | map_number
-    print(f"[STATE_FORMATTER] map_bank={map_bank}, map_number={map_number}, current_map_id=0x{current_map_id:04X}")
+    # Load maps_ascii.json
+    maps_ascii = _load_maps_ascii()
 
-    # Get MapStitcher instance - prefer the one from map_data (passed from memory_reader)
-    # This ensures we use the same instance with all the accumulated map data
-    map_stitcher = map_data.get('_map_stitcher_instance')
-    if not map_stitcher:
-        # Fallback: load from file for cases where it's not passed
-        from utils.map_stitcher import MapStitcher
-        map_stitcher = MapStitcher()  # Auto-loads from file
-        print(f"[STATE_FORMATTER] Using fallback MapStitcher loaded from file")
-    else:
-        print(f"[STATE_FORMATTER] Using MapStitcher instance from memory_reader")
+    # Convert location_name to LAYOUT_* key
+    layout_key = _location_name_to_layout_key(location_name)
 
-    print(f"[STATE_FORMATTER] MapStitcher has {len(map_stitcher.map_areas)} areas: {[f'0x{k:04X}' for k in list(map_stitcher.map_areas.keys())[:5]]}")
-    print(f"[STATE_FORMATTER] Looking for map_id 0x{current_map_id:04X} in MapStitcher: {current_map_id in map_stitcher.map_areas}")
+    if not layout_key:
+        error_msg = f"[STATE_FORMATTER ERROR] No location_name provided. Cannot lookup map."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
-    # Try to get stitched map data for current map
-    stitched_map_data = None
-    warp_info = []
+    print(f"[STATE_FORMATTER] Location: {location_name} -> Layout key: {layout_key}")
 
-    if current_map_id in map_stitcher.map_areas:
-        area = map_stitcher.map_areas[current_map_id]
-        stitched_map_data = area.map_data
+    # Lookup map in maps_ascii.json
+    if layout_key not in maps_ascii:
+        error_msg = f"[STATE_FORMATTER ERROR] Map '{layout_key}' not found in maps_ascii.json (location: {location_name})"
+        logger.error(error_msg)
+        raise KeyError(error_msg)
 
-        # Extract warp information (from_position is already in game coordinates)
-        # COMMENTED OUT: Warp positions show player spawn position, not actual warp tile position
-        # This causes confusion (off-by-1 appearance) compared to Object positions
-        # for conn in map_stitcher.warp_connections:
-        #     if conn.from_map_id == current_map_id:
-        #         # Get destination location name
-        #         dest_name = "Unknown"
-        #         if conn.to_map_id in map_stitcher.map_areas:
-        #             dest_name = map_stitcher.map_areas[conn.to_map_id].location_name
-        #
-        #         # from_position is already in game coordinates (player position when warp triggered)
-        #         # No conversion needed - use as-is
-        #         warp_game_x, warp_game_y = conn.from_position
-        #
-        #         warp_info.append({
-        #             "position": {"x": warp_game_x, "y": warp_game_y},
-        #             "leads_to": dest_name,
-        #             "type": conn.warp_type,
-        #             "direction": conn.direction
-        #         })
+    # Get the map data
+    map_info = maps_ascii[layout_key]
+    ascii_map_str = map_info.get('ascii_map', '')
 
-    # Fallback: use current 15x15 view if stitched data not available
-    if stitched_map_data is None:
-        raw_tiles = map_data.get('tiles')
-        if not raw_tiles:
-            return None
+    if not ascii_map_str:
+        error_msg = f"[STATE_FORMATTER ERROR] Map '{layout_key}' has no ascii_map data"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
-        # Use current view
-        stitched_map_data = raw_tiles
+    # Convert string to list of strings
+    ascii_map = ascii_map_str.split('\n')
 
-    # Generate ASCII map from game coordinate (0,0) to explored maximum
-    from utils.map_formatter import format_stitched_map_simple, format_map_for_llm
-
-    if current_map_id in map_stitcher.map_areas:
-        # Use stitched map - returns list of strings directly
-        area = map_stitcher.map_areas[current_map_id]
-        ascii_map = format_stitched_map_simple(area, player_x, player_y)
-    else:
-        # Fallback: use current 15x15 view for new areas
-        ascii_map_str = format_map_for_llm(
-            raw_tiles=map_data.get('tiles', []),
-            player_facing=player_facing,
-            npcs=None,
-            player_coords=(player_x, player_y),
-            location_name=location_name
-        )
-        ascii_map = ascii_map_str.split('\n') if ascii_map_str else []
+    print(f"[STATE_FORMATTER] Loaded map '{layout_key}' from maps_ascii.json: {map_info.get('width')}x{map_info.get('height')}")
 
     # Generate dynamic legend from the ascii_map
     if ascii_map:
@@ -569,29 +576,18 @@ def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=
         legend_str = generate_dynamic_legend(ascii_map_joined)
         # Convert legend to list of strings as well for consistency
         legend = legend_str.split('\n')
-
-        # Add object positions if we have stitched map
-        if current_map_id in map_stitcher.map_areas:
-            area = map_stitcher.map_areas[current_map_id]
-            object_positions = _extract_object_positions_from_area(area)
-
-            if object_positions:
-                legend.append("")
-                legend.append("Object positions (world coordinates):")
-                for symbol, description, world_x, world_y in object_positions:
-                    legend.append(f"  {symbol}={description} at ({world_x}, {world_y})")
     else:
         legend = ["Legend not available"]
 
     return {
-        "ascii_map": ascii_map,  # Now a list of strings
-        "legend": legend,  # Now a list of strings
+        "ascii_map": ascii_map,  # List of strings
+        "legend": legend,  # List of strings
         "player_position": {
             "x": player_x,
             "y": player_y,
             "facing": player_facing
         },
-        "warps": warp_info
+        "warps": []  # Empty for now - not using MapStitcher anymore
     }
 
 
