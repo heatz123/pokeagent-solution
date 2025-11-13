@@ -1,0 +1,325 @@
+{
+  "stop_on_failure": true,
+  "milestones": [
+    {
+      "id": "GAME_RUNNING",
+      "description": "Complete title sequence and begin the game",
+      "starting_state": null,
+      "max_steps": 100,
+      "max_retries": 3,
+      "timeout": 60
+    },
+    {
+      "id": "PLAYER_NAME_SET",
+      "description": "Player has chosen their character name",
+      "starting_state": "milestone_states/GAME_RUNNING_completed.state",
+      "max_steps": 150,
+      "max_retries": 3,
+      "timeout": 90
+    },
+    {
+      "id": "INTRO_CUTSCENE_COMPLETE",
+      "description": "Complete intro cutscene with moving van",
+      "starting_state": "milestone_states/PLAYER_NAME_SET_completed.state",
+      "max_steps": 200,
+      "max_retries": 3,
+      "timeout": 120
+    },
+    {
+      "id": "LITTLEROOT_TOWN",
+      "description": "Arrive at Littleroot Town",
+      "starting_state": "milestone_states/INTRO_CUTSCENE_COMPLETE_completed.state",
+      "max_steps": 200,
+      "max_retries": 3,
+      "timeout": 120
+    },
+    {
+      "id": "PLAYER_HOUSE_ENTERED",
+      "description": "Enter player's house for the first time",
+      "starting_state": "milestone_states/LITTLEROOT_TOWN_completed.state",
+      "max_steps": 300,
+      "max_retries": 3,
+      "timeout": 180
+    },
+    {
+      "id": "PLAYER_BEDROOM",
+      "description": "Go upstairs to player's bedroom",
+      "starting_state": "milestone_states/PLAYER_HOUSE_ENTERED_completed.state",
+      "max_steps": 200,
+      "max_retries": 10,
+      "timeout": 120
+    },
+    {
+      "id": "CLOCK_INTERACT",
+      "description": "From position (5,2) in player bedroom, execute action sequence ['up', 'a'] to move up to the clock and interact with it",
+      "starting_state": "milestone_states/PLAYER_BEDROOM_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "GO_DOWNSTAIRS_TO_1F",
+      "description": "Go downstairs from bedroom (2F) to Brendan's house 1F",
+      "starting_state": "milestone_states/CLOCK_INTERACT_completed.state",
+      "max_steps": 150,
+      "max_retries": 5,
+      "timeout": 90
+    },
+    {
+      "id": "LEAVE_HOUSE",
+      "description": "Exit Brendan's house to Littleroot Town (outside)",
+      "starting_state": "milestone_states/GO_DOWNSTAIRS_TO_1F_completed.state",
+      "max_steps": 150,
+      "max_retries": 5,
+      "timeout": 90
+    },
+    {
+      "id": "CLOCK_SET",
+      "description": "Set the clock in player's bedroom and leave the house",
+      "starting_state": "milestone_states/LEAVE_HOUSE_completed.state",
+      "max_steps": 100,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "RIVAL_HOUSE",
+      "description": "Visit May's house next door",
+      "starting_state": "milestone_states/CLOCK_SET_completed.state",
+      "max_steps": 200,
+      "max_retries": 10,
+      "timeout": 120
+    },
+    {
+      "id": "RIVAL_BEDROOM",
+      "description": "Visit May's bedroom on the second floor",
+      "starting_state": "milestone_states/RIVAL_HOUSE_completed.state",
+      "max_steps": 200,
+      "max_retries": 10,
+      "timeout": 120
+    },
+    {
+      "id": "GO_DOWNSTAIRS_RIVAL_HOUSE",
+      "description": "Go downstairs from May's bedroom (2F) to May's house 1F",
+      "starting_state": "milestone_states/RIVAL_BEDROOM_completed.state",
+      "max_steps": 150,
+      "max_retries": 5,
+      "timeout": 90
+    },
+    {
+      "id": "EXIT_RIVAL_HOUSE",
+      "description": "Exit May's house to Littleroot Town (outside)",
+      "starting_state": "milestone_states/GO_DOWNSTAIRS_RIVAL_HOUSE_completed.state",
+      "max_steps": 150,
+      "max_retries": 10,
+      "timeout": 90
+    },
+    {
+      "id": "LITTLEROOT_TO_ROUTE101",
+      "description": "Leave Littleroot Town and head to Route 101",
+      "starting_state": "milestone_states/EXIT_RIVAL_HOUSE_completed.state",
+      "max_steps": 200,
+      "max_retries": 10,
+      "timeout": 120
+    },
+    {
+      "id": "ROUTE_101",
+      "description": "Travel to Route 101",
+      "starting_state": "milestone_states/LITTLEROOT_TO_ROUTE101_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "STARTER_CHOSEN",
+      "description": "Choose starter Pokemon",
+      "starting_state": "milestone_states/ROUTE_101_completed.state",
+      "max_steps": 500,
+      "max_retries": 10,
+      "timeout": 300
+    },
+    {
+      "id": "BIRCH_LAB_VISITED",
+      "description": "Visit Professor Birch's lab",
+      "starting_state": "milestone_states/STARTER_CHOSEN_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "OLDALE_TOWN",
+      "description": "Arrive at Oldale Town",
+      "starting_state": "milestone_states/BIRCH_LAB_VISITED_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "ROUTE_103",
+      "description": "Travel to Route 103 and battle with May",
+      "starting_state": "milestone_states/OLDALE_TOWN_completed.state",
+      "max_steps": 500,
+      "max_retries": 10,
+      "timeout": 300
+    },
+    {
+      "id": "MAY_ROUTE103_INTERACTION",
+      "description": "Interact with May on Route 103 (dialog contains 'MAY: I think I know')",
+      "starting_state": "milestone_states/ROUTE_103_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "BACK_TO_OLDALE_FROM_ROUTE103",
+      "description": "Return to Oldale Town from Route 103 (on the way back to get Pokedex)",
+      "starting_state": "milestone_states/MAY_ROUTE103_INTERACTION_completed.state",
+      "max_steps": 250,
+      "max_retries": 10,
+      "timeout": 150
+    },
+    {
+      "id": "BACK_TO_ROUTE101_FROM_OLDALE",
+      "description": "Return to Route 101 from Oldale Town (heading back to Littleroot)",
+      "starting_state": "milestone_states/BACK_TO_OLDALE_FROM_ROUTE103_completed.state",
+      "max_steps": 250,
+      "max_retries": 10,
+      "timeout": 150
+    },
+    {
+      "id": "BACK_TO_LITTLEROOT_FOR_POKEDEX",
+      "description": "Return to Littleroot Town after Route 103 (to get Pokedex)",
+      "starting_state": "milestone_states/BACK_TO_ROUTE101_FROM_OLDALE_completed.state",
+      "max_steps": 250,
+      "max_retries": 10,
+      "timeout": 150
+    },
+    {
+      "id": "ENTER_BIRCH_LAB_FOR_POKEDEX",
+      "description": "Enter Professor Birch's lab to receive Pokedex",
+      "starting_state": "milestone_states/BACK_TO_LITTLEROOT_FOR_POKEDEX_completed.state",
+      "max_steps": 200,
+      "max_retries": 10,
+      "timeout": 120
+    },
+    {
+      "id": "POKEDEX_DIALOG_CONFIRMED",
+      "description": "Pokedex dialog text appeared in Birch's lab",
+      "starting_state": "milestone_states/ENTER_BIRCH_LAB_FOR_POKEDEX_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "RECEIVED_POKEDEX",
+      "description": "Visit Birch's lab to receive Pokedex from Professor Birch",
+      "starting_state": "milestone_states/POKEDEX_DIALOG_CONFIRMED_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "LEAVE_LITTLEROOT_TO_ROUTE101",
+      "description": "Leave Littleroot Town toward Route 101 (after getting Pokedex)",
+      "starting_state": "milestone_states/RECEIVED_POKEDEX_completed.state",
+      "max_steps": 200,
+      "max_retries": 10,
+      "timeout": 120
+    },
+    {
+      "id": "OLDALE_TO_ROUTE102",
+      "description": "Pass through Oldale Town on the way to Route 102",
+      "starting_state": "milestone_states/LEAVE_LITTLEROOT_TO_ROUTE101_completed.state",
+      "max_steps": 250,
+      "max_retries": 10,
+      "timeout": 150
+    },
+    {
+      "id": "ROUTE_102",
+      "description": "Travel to Route 102",
+      "starting_state": "milestone_states/OLDALE_TO_ROUTE102_completed.state",
+      "max_steps": 250,
+      "max_retries": 10,
+      "timeout": 150
+    },
+    {
+      "id": "PETALBURG_CITY",
+      "description": "Arrive at Petalburg City",
+      "starting_state": "milestone_states/ROUTE_102_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "DAD_FIRST_MEETING",
+      "description": "Meet Dad at Petalburg Gym",
+      "starting_state": "milestone_states/PETALBURG_CITY_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "DAD_DIALOG_CONFIRMED",
+      "description": "Dad dialog appeared at Petalburg Gym",
+      "starting_state": "milestone_states/DAD_FIRST_MEETING_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "EXIT_PETALBURG_GYM",
+      "description": "Exit Petalburg Gym after meeting Dad (heading to Route 104 South)",
+      "starting_state": "milestone_states/DAD_DIALOG_CONFIRMED_completed.state",
+      "max_steps": 150,
+      "max_retries": 10,
+      "timeout": 90
+    },
+    {
+      "id": "GYM_EXPLANATION",
+      "description": "Receive gym explanation from Dad",
+      "starting_state": "milestone_states/EXIT_PETALBURG_GYM_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "ROUTE_104_SOUTH",
+      "description": "Travel to Route 104 (South)",
+      "starting_state": "milestone_states/GYM_EXPLANATION_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "PETALBURG_WOODS",
+      "description": "Navigate through Petalburg Woods",
+      "starting_state": "milestone_states/ROUTE_104_SOUTH_completed.state",
+      "max_steps": 500,
+      "max_retries": 10,
+      "timeout": 300
+    },
+    {
+      "id": "RUSTBORO_CITY",
+      "description": "Arrive at Rustboro City",
+      "starting_state": "milestone_states/PETALBURG_WOODS_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "RUSTBORO_GYM_ENTERED",
+      "description": "Enter Rustboro Gym",
+      "starting_state": "milestone_states/RUSTBORO_CITY_completed.state",
+      "max_steps": 300,
+      "max_retries": 10,
+      "timeout": 180
+    },
+    {
+      "id": "STONE_BADGE",
+      "description": "Defeat Gym Leader Roxanne and receive Stone Badge (first gym badge)",
+      "starting_state": "milestone_states/RUSTBORO_GYM_ENTERED_completed.state",
+      "max_steps": 800,
+      "max_retries": 5,
+      "timeout": 480
+    }
+  ]
+}
