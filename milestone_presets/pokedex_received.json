@@ -3,9 +3,17 @@
     "completed": true,
     "timestamp": 1762900000.0
   },
-  "LITTLEROOT_TOWN": {
+  "PLAYER_NAME_SET": {
+    "completed": true,
+    "timestamp": 1762900050.0
+  },
+  "INTRO_CUTSCENE_COMPLETE": {
     "completed": true,
     "timestamp": 1762900100.0
+  },
+  "LITTLEROOT_TOWN": {
+    "completed": true,
+    "timestamp": 1762900150.0
   },
   "PLAYER_HOUSE_ENTERED": {
     "completed": true,
@@ -18,6 +26,10 @@
   "CLOCK_INTERACT": {
     "completed": true,
     "timestamp": 1762900400.0
+  },
+  "CLOCK_SET": {
+    "completed": true,
+    "timestamp": 1762900450.0
   },
   "LEAVE_HOUSE": {
     "completed": true,

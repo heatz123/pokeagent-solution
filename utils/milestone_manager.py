@@ -222,30 +222,51 @@ class MilestoneManager:
 
     def get_ordered_milestones(self) -> list:
         """
-        Get all milestones (base + custom) in correct order
+        Get all milestones (custom only) in correct order
 
-        Uses insert() to place custom milestones after their specified base milestone
+        Builds milestone order from insert_after chain.
+        ALL_MILESTONES is kept for backward compatibility but not used here.
 
         Returns:
             List of milestone dicts with id, description, category
         """
-        # Start with a copy of base milestones
-        result = list(self.ALL_MILESTONES)
+        if not self.custom_milestones:
+            return []
 
-        # Insert each custom milestone after its specified base milestone
+        # Build adjacency list from insert_after relationships
+        children = {}  # parent_id -> [child milestone dicts]
+        roots = []  # Milestones with insert_after=None
+
         for custom in self.custom_milestones:
-            insert_after_id = custom["insert_after"]
+            parent_id = custom["insert_after"]
 
-            # Find the index of the base milestone
-            for i, milestone in enumerate(result):
-                if milestone["id"] == insert_after_id:
-                    # Insert custom milestone right after
-                    result.insert(i + 1, {
-                        "id": custom["id"],
-                        "description": custom["description"],
-                        "category": custom["category"]
-                    })
-                    break  # Move to next custom milestone
+            if parent_id is None:
+                roots.append(custom)
+            else:
+                if parent_id not in children:
+                    children[parent_id] = []
+                children[parent_id].append(custom)
+
+        # Build ordered list by traversing the tree
+        result = []
+
+        def add_subtree(milestone):
+            """Add milestone and all its children to result"""
+            result.append({
+                "id": milestone["id"],
+                "description": milestone["description"],
+                "category": milestone["category"]
+            })
+
+            # Add all children
+            milestone_id = milestone["id"]
+            if milestone_id in children:
+                for child in children[milestone_id]:
+                    add_subtree(child)
+
+        # Start from roots (should be only GAME_RUNNING)
+        for root in roots:
+            add_subtree(root)
 
         return result
 
