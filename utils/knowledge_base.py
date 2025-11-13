@@ -245,55 +245,93 @@ class KnowledgeBase:
         self.load()  # Reload from file to get latest external changes
         return [e.to_dict() for e in self.entries[-limit:]]
 
-    def get_by_keywords(self, keywords: set, limit: int = 50, always_include_recent: int = 0) -> List[Dict[str, Any]]:
+    def get_by_keywords(self, query_text: str, limit: int = 50, always_include_recent: int = 0) -> List[Dict[str, Any]]:
         """
-        Get knowledge entries matching any of the given keywords
+        Get knowledge entries matching by longest common substring
 
         Args:
-            keywords: Set of uppercase keywords to search for
+            query_text: Search query text (location name, item description, etc.)
             limit: Maximum number of entries to return
             always_include_recent: Number of recent entries to always include
 
         Returns:
-            List of matching entry dicts (prioritized by number of keyword matches)
+            List of matching entry dicts (prioritized by longest common substring length)
         """
         self.load()  # Reload from file to get latest external changes
 
         if not self.entries:
             return []
 
-        # If no keywords, return recent entries only
-        if not keywords:
+        # If no query text, return recent entries only
+        if not query_text or not query_text.strip():
             return [e.to_dict() for e in self.entries[-always_include_recent:]] if always_include_recent else []
 
-        # Filter entries and count keyword matches
+        # Process query string: remove spaces and special characters, uppercase
+        import re
+        query_string = re.sub(r'[^A-Z0-9]', '', query_text.upper())
+
+        # Filter entries and calculate longest common substring
         matched = []
         for entry in self.entries:
-            content_upper = entry.content.upper()
-            # Count how many keywords match
-            match_count = sum(1 for keyword in keywords if keyword in content_upper)
-            if match_count > 0:
-                matched.append((entry, match_count))
+            # Process content: remove spaces and special characters, uppercase
+            content_processed = re.sub(r'[^A-Z0-9]', '', entry.content.upper())
+            # Calculate longest common substring length
+            lcs_length = self._longest_common_substring_length(query_string, content_processed)
+            if lcs_length > 0:
+                matched.append((entry, lcs_length))
 
-        # Sort by match count (descending - more matches first)
+        # Sort by LCS length (descending - longer matches first)
         matched.sort(key=lambda x: x[1], reverse=True)
 
-        # Extract just the entries (remove match counts)
+        # Extract just the entries (remove match scores)
         matched_entries = [entry for entry, _ in matched]
 
         # Always include recent entries (deduplicate by id)
         if always_include_recent > 0:
             recent = self.entries[-always_include_recent:]
+            # Build score map for sorting
+            score_map = {entry.id: score for entry, score in matched}
             # Combine matched + recent, deduplicate
-            all_entries = {e.id: e for e in (matched_entries + recent)}
-            result = [e.to_dict() for e in all_entries.values()]
-            # Sort by created_step to maintain temporal order
-            result.sort(key=lambda x: x['created_step'])
-            return result[-limit:]
+            all_entries_dict = {e.id: e for e in (matched_entries + recent)}
+            all_entries_list = list(all_entries_dict.values())
+            # Sort by LCS score (descending) - matched entries have scores, recent entries get 0
+            all_entries_list.sort(key=lambda e: score_map.get(e.id, 0), reverse=True)
+            # Return top N entries sorted by relevance
+            result = [e.to_dict() for e in all_entries_list[:limit]]
+            return result
         else:
-            # Return first N matched entries (already sorted by match count)
+            # Return first N matched entries (already sorted by LCS length)
             result = [e.to_dict() for e in matched_entries[:limit]]
             return result
+
+    def _longest_common_substring_length(self, s1: str, s2: str) -> int:
+        """
+        Calculate the length of the longest common substring between two strings
+
+        Args:
+            s1: First string (already uppercase, no spaces)
+            s2: Second string (already uppercase, no spaces)
+
+        Returns:
+            Length of longest common substring
+        """
+        if not s1 or not s2:
+            return 0
+
+        m, n = len(s1), len(s2)
+        # Create DP table
+        dp = [[0] * (n + 1) for _ in range(m + 1)]
+        max_length = 0
+
+        for i in range(1, m + 1):
+            for j in range(1, n + 1):
+                if s1[i - 1] == s2[j - 1]:
+                    dp[i][j] = dp[i - 1][j - 1] + 1
+                    max_length = max(max_length, dp[i][j])
+                else:
+                    dp[i][j] = 0
+
+        return max_length
 
     def clear(self):
         """Clear all knowledge entries (for debugging)"""
