@@ -9,8 +9,11 @@ import io
 import json
 import time
 import os
+import logging
 from typing import Any
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 
 class VLMCaller:
