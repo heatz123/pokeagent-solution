@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Training Monitor Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #58a6ff;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #30363d;
+        }
+
+        .header-left {
+            flex: 1;
+        }
+
+        .header-right {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .refresh-toggle {
+            padding: 8px 16px;
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #c9d1d9;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+        }
+
+        .refresh-toggle:hover {
+            background: #30363d;
+        }
+
+        .refresh-toggle.active {
+            background: #238636;
+            border-color: #238636;
+            color: white;
+        }
+
+        .status-badge {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+
+        .status-running {
+            background: #238636;
+            color: white;
+        }
+
+        .status-stopped {
+            background: #6e7681;
+            color: white;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 20px;
+        }
+
+        .card h2 {
+            color: #58a6ff;
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #21262d;
+        }
+
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            color: #8b949e;
+        }
+
+        .stat-value {
+            color: #58a6ff;
+            font-weight: 600;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section h2 {
+            color: #58a6ff;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .log-item {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+
+        .log-header {
+            padding: 15px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+
+        .log-header:hover {
+            background: #1c2128;
+        }
+
+        .log-info {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .log-type {
+            color: #58a6ff;
+            font-weight: 600;
+        }
+
+        .log-timestamp {
+            color: #8b949e;
+            font-size: 0.9em;
+        }
+
+        .log-duration {
+            color: #7ee787;
+            font-size: 0.9em;
+        }
+
+        .log-expand {
+            color: #8b949e;
+            font-size: 1.2em;
+        }
+
+        .log-details {
+            display: none;
+            padding: 15px;
+            border-top: 1px solid #30363d;
+            background: #0d1117;
+        }
+
+        .log-details.expanded {
+            display: block;
+        }
+
+        .log-content {
+            margin-bottom: 20px;
+        }
+
+        .log-content h4 {
+            color: #7ee787;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+            text-transform: uppercase;
+        }
+
+        .log-text {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+            padding: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            color: #c9d1d9;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .video-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .video-item {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 15px;
+        }
+
+        .video-item h4 {
+            color: #58a6ff;
+            margin-bottom: 10px;
+            font-size: 0.95em;
+            word-break: break-all;
+        }
+
+        .video-info {
+            color: #8b949e;
+            font-size: 0.85em;
+            margin-bottom: 10px;
+        }
+
+        .video-player {
+            width: 100%;
+            border-radius: 4px;
+            background: #000;
+        }
+
+        .refresh-info {
+            color: #8b949e;
+            font-size: 0.9em;
+            text-align: right;
+        }
+
+        .loading {
+            color: #58a6ff;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .no-data {
+            color: #8b949e;
+            text-align: center;
+            padding: 40px;
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #30363d;
+            border-top-color: #58a6ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <h1>🎮 Training Monitor Dashboard</h1>
+                <p class="refresh-info">
+                    <span id="refresh-status">Auto-refresh: OFF</span> •
+                    Last updated: <span id="last-update">-</span>
+                </p>
+            </div>
+            <div class="header-right">
+                <button id="refresh-toggle" class="refresh-toggle" onclick="toggleAutoRefresh()">
+                    ⏸️ Auto-Refresh: OFF
+                </button>
+                <div id="status-badge" class="status-badge status-stopped">
+                    <span class="spinner"></span> Loading...
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics Grid -->
+        <div class="grid">
+            <div class="card">
+                <h2>📊 Statistics</h2>
+                <div id="statistics-content">
+                    <div class="loading"><span class="spinner"></span> Loading...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>⏱️ Recent Activity</h2>
+                <div id="recent-activity">
+                    <div class="loading"><span class="spinner"></span> Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LLM Logs Section -->
+        <div class="section">
+            <h2>💬 LLM Interaction Logs</h2>
+            <div id="llm-logs">
+                <div class="loading"><span class="spinner"></span> Loading...</div>
+            </div>
+        </div>
+
+        <!-- Videos Section -->
+        <div class="section">
+            <h2>🎬 Training Videos</h2>
+            <div id="videos-section">
+                <div class="loading"><span class="spinner"></span> Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-refresh interval (5 seconds)
+        const REFRESH_INTERVAL = 5000;
+        let autoRefreshEnabled = false;
+        let refreshIntervalId = null;
+
+        // Toggle auto-refresh
+        function toggleAutoRefresh() {
+            autoRefreshEnabled = !autoRefreshEnabled;
+            const button = document.getElementById('refresh-toggle');
+            const statusSpan = document.getElementById('refresh-status');
+
+            if (autoRefreshEnabled) {
+                button.textContent = '🔄 Auto-Refresh: ON';
+                button.classList.add('active');
+                statusSpan.textContent = 'Auto-refresh: ON (every 5s)';
+                startAutoRefresh();
+            } else {
+                button.textContent = '⏸️ Auto-Refresh: OFF';
+                button.classList.remove('active');
+                statusSpan.textContent = 'Auto-refresh: OFF';
+                stopAutoRefresh();
+            }
+        }
+
+        // Fetch and update status
+        async function updateStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+
+                const badge = document.getElementById('status-badge');
+                if (data.running) {
+                    badge.className = 'status-badge status-running';
+                    badge.innerHTML = '🟢 Training Running';
+                } else {
+                    badge.className = 'status-badge status-stopped';
+                    badge.innerHTML = '⚪ Training Stopped';
+                }
+
+                // Update recent activity
+                const activityDiv = document.getElementById('recent-activity');
+                if (data.recent_logs && data.recent_logs.length > 0) {
+                    activityDiv.innerHTML = data.recent_logs.map(log => `
+                        <div class="stat-item">
+                            <span class="stat-label">${log.type || 'unknown'}</span>
+                            <span class="stat-value">${log.duration ? log.duration.toFixed(2) + 's' : '-'}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    activityDiv.innerHTML = '<div class="no-data">No recent activity</div>';
+                }
+            } catch (error) {
+                console.error('Error fetching status:', error);
+            }
+        }
+
+        // Fetch and update statistics
+        async function updateStatistics() {
+            try {
+                const response = await fetch('/api/statistics');
+                const data = await response.json();
+
+                const statsDiv = document.getElementById('statistics-content');
+                statsDiv.innerHTML = `
+                    <div class="stat-item">
+                        <span class="stat-label">Total LLM Calls</span>
+                        <span class="stat-value">${data.total_llm_calls || 0}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Code Generations</span>
+                        <span class="stat-value">${data.code_generations || 0}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Duration</span>
+                        <span class="stat-value">${data.total_duration ? data.total_duration.toFixed(2) + 's' : '0s'}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Avg Duration</span>
+                        <span class="stat-value">${data.avg_duration ? data.avg_duration.toFixed(2) + 's' : '0s'}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Videos</span>
+                        <span class="stat-value">${data.total_videos || 0}</span>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error fetching statistics:', error);
+            }
+        }
+
+        // Fetch and update LLM logs
+        async function updateLLMLogs() {
+            try {
+                const response = await fetch('/api/llm_logs?limit=20');
+                const data = await response.json();
+
+                const logsDiv = document.getElementById('llm-logs');
+                if (data.logs && data.logs.length > 0) {
+                    logsDiv.innerHTML = data.logs.reverse().map((log, index) => `
+                        <div class="log-item">
+                            <div class="log-header" onclick="toggleLog(${index})">
+                                <div class="log-info">
+                                    <span class="log-type">${log.type}</span>
+                                    <span class="log-timestamp">${new Date(log.timestamp).toLocaleString()}</span>
+                                    <span class="log-duration">${log.duration}s</span>
+                                    <span class="log-timestamp">${log.model}</span>
+                                </div>
+                                <span class="log-expand" id="expand-icon-${index}">▼</span>
+                            </div>
+                            <div class="log-details" id="log-details-${index}">
+                                <div class="log-content">
+                                    <h4>📝 Prompt Preview</h4>
+                                    <div class="log-text">${escapeHtml(log.prompt_preview || 'No prompt')}</div>
+                                </div>
+                                <div class="log-content">
+                                    <h4>💬 Response Preview</h4>
+                                    <div class="log-text">${escapeHtml(log.response_preview || 'No response')}</div>
+                                </div>
+                                <div class="log-content">
+                                    <h4>📄 Full Prompt</h4>
+                                    <div class="log-text">${escapeHtml(log.full_prompt || 'No prompt')}</div>
+                                </div>
+                                <div class="log-content">
+                                    <h4>✅ Full Response</h4>
+                                    <div class="log-text">${escapeHtml(log.full_response || 'No response')}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    logsDiv.innerHTML = '<div class="no-data">No LLM logs available</div>';
+                }
+            } catch (error) {
+                console.error('Error fetching LLM logs:', error);
+            }
+        }
+
+        // Fetch and update videos
+        async function updateVideos() {
+            try {
+                const response = await fetch('/api/videos');
+                const data = await response.json();
+
+                const videosDiv = document.getElementById('videos-section');
+                if (data.videos && data.videos.length > 0) {
+                    videosDiv.innerHTML = `
+                        <div class="video-grid">
+                            ${data.videos.map(video => `
+                                <div class="video-item">
+                                    <h4>${video.filename}</h4>
+                                    <div class="video-info">
+                                        Modified: ${new Date(video.modified).toLocaleString()}<br>
+                                        Size: ${(video.size / 1024 / 1024).toFixed(2)} MB
+                                    </div>
+                                    <video class="video-player" controls>
+                                        <source src="/videos/${video.filename}" type="video/mp4">
+                                        Your browser does not support the video tag.
+                                    </video>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else {
+                    videosDiv.innerHTML = '<div class="no-data">No videos available</div>';
+                }
+            } catch (error) {
+                console.error('Error fetching videos:', error);
+            }
+        }
+
+        // Toggle log details
+        function toggleLog(index) {
+            const details = document.getElementById(`log-details-${index}`);
+            const icon = document.getElementById(`expand-icon-${index}`);
+
+            if (details.classList.contains('expanded')) {
+                details.classList.remove('expanded');
+                icon.textContent = '▼';
+            } else {
+                details.classList.add('expanded');
+                icon.textContent = '▲';
+            }
+        }
+
+        // Escape HTML for safe display
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Update last refresh time
+        function updateLastRefreshTime() {
+            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Initial load
+        async function refresh() {
+            updateLastRefreshTime();
+            await Promise.all([
+                updateStatus(),
+                updateStatistics(),
+                updateLLMLogs(),
+                updateVideos()
+            ]);
+        }
+
+        // Start auto-refresh
+        function startAutoRefresh() {
+            if (refreshIntervalId) {
+                clearInterval(refreshIntervalId);
+            }
+            refreshIntervalId = setInterval(refresh, REFRESH_INTERVAL);
+        }
+
+        // Stop auto-refresh
+        function stopAutoRefresh() {
+            if (refreshIntervalId) {
+                clearInterval(refreshIntervalId);
+                refreshIntervalId = null;
+            }
+        }
+
+        // Initial load (auto-refresh disabled by default)
+        refresh();
+    </script>
+</body>
+</html>
