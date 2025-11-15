@@ -206,3 +206,80 @@ WORLD_COORDINATE_UPDATE.md
 
 # Temporary test files
 test_*.py
+
+# Pokemon ROM files (users provide their own)
+*.gba
+*.sav
+Emerald-GBAdvance/rom_*.gba
+
+# Expert snapshots and training data
+.expert_snapshots_*/
+.milestone_trainer_cache/
+.milestone_trainer_cache_backup/
+.process_backup/
+
+# Training outputs and videos
+dagger_logs/
+dagger_videos/
+dagger_pipeline_results/
+videos/
+split_snapshots/
+
+# LLM and training logs
+llm_logs/
+wandb/
+
+# Temporary state files
+CURRENT_STATE_*.state
+CURRENT_STATE_*.json
+
+# Additional development/planning documents
+ENV_INTERFACE_REDESIGN_PLAN.md
+INTERFACE_MIGRATION_PLAN.md
+SDK_COMPARISON.md
+SDK_IMPROVEMENTS_SUMMARY.md
+SPATIAL_KNOWLEDGE_COMPREHENSIVE.md
+SPATIAL_KNOWLEDGE_ENTRIES_ONLY.txt
+MANUAL_KNOWLEDGE_SUMMARY.md
+PATHFINDING_BUG_FIX.md
+CODEAGENT_REUSE_MAPPING.md
+TOOL_RELOAD_GUIDE.md
+CURRICULUM_LEARNING_DESIGN.md
+meta_agent_strategies.md
+
+# Temporary scripts and test files
+demo_*.py
+debug_*.py
+auto_restart_trainer.sh
+run_all_dagger_parallel.sh
+test_dagger.sh
+test_expert_snapshots.sh
+demo_*.sh
+expert_client.py
+milestone_trainer.py
+milestone_trainer_sdk.py
+*_client.py
+*_daemon.py
+
+# Extracted/generated knowledge and config files
+extracted_spatial_knowledge*.txt
+unclassified_coordinates.txt
+recent_100_knowledge*.txt
+manual_knowledge.json
+milestone_config_demo.json
+milestone_config_with_mart_backup.json
+
+# Utility scripts (keep generate_ascii_maps.py)
+parse_*.py
+create_manual_knowledge.py
+monitor_analysis_count.py
+show_analysis_prompt.py
+check_pokecenter_tiles.py
+generate_final_spatial_knowledge.py
+pathfinding_grass_avoidance_patch.md
+
+# JSON test outputs
+test_state_structure_output.json
+
+# Markdown patches
+*.patch.md
