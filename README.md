@@ -738,6 +738,99 @@ python run.py --backend local --model-name "Qwen/Qwen2-VL-2B-Instruct"
 - **Local models**: Best for extended runs, no API costs
 - **Debug mode**: Use `--debug-state` only when needed (verbose output)
 
+## Training and Policy Generation
+
+This project includes an automated training pipeline for generating and improving agent policies using DAgger with VLM-synthesized expert guidance.
+
+### Expert Policy Generation
+
+Generate Markovian policy code for each milestone using LLM:
+
+```bash
+# Generate expert policy for a specific milestone
+/home/heatz123/anaconda3/envs/pokeagent/bin/python3 milestone_trainer.py \
+    --milestone RIVAL_HOUSE \
+    --backend openai \
+    --model-name gpt-4o
+```
+
+The system will:
+1. Load the milestone configuration and starting state
+2. Use VLM to generate tool-using policy code
+3. Execute and validate the policy
+4. On failure, provide screenshots and logs for retry/refinement
+5. Cache successful policies in `.milestone_trainer_cache/successful_policies/`
+
+### Automated DAgger Training Pipeline
+
+Train neural policies across all milestones automatically:
+
+```bash
+# Full pipeline with default settings
+/home/heatz123/anaconda3/envs/pokeagent/bin/python3 rl_training/auto_dagger_pipeline.py
+
+# Quick test with fewer episodes
+/home/heatz123/anaconda3/envs/pokeagent/bin/python3 rl_training/auto_dagger_pipeline.py \
+    --eval-episodes 3 \
+    --dagger-iterations 5 \
+    --episodes-per-iter 5
+
+# High-quality training
+/home/heatz123/anaconda3/envs/pokeagent/bin/python3 rl_training/auto_dagger_pipeline.py \
+    --eval-episodes 10 \
+    --dagger-iterations 20 \
+    --episodes-per-iter 20 \
+    --train-steps-per-iter 3000
+
+# Train specific milestone only
+/home/heatz123/anaconda3/envs/pokeagent/bin/python3 rl_training/auto_dagger_pipeline.py \
+    --milestone RIVAL_HOUSE
+
+# Resume from checkpoint
+/home/heatz123/anaconda3/envs/pokeagent/bin/python3 rl_training/auto_dagger_pipeline.py \
+    --resume-from RIVAL_BEDROOM
+```
+
+**Key Parameters**:
+- `--eval-episodes`: Expert evaluation episodes (default: 5)
+- `--dagger-iterations`: DAgger training iterations (default: 10)
+- `--episodes-per-iter`: Rollout episodes per iteration (default: 10)
+- `--train-steps-per-iter`: Training steps per iteration (default: 2000)
+- `--track`: Enable Weights & Biases logging
+- `--no-record-video`: Disable video recording for faster training
+
+**Output**: Results saved to `dagger_pipeline_results/` including trained models, evaluation videos, and CSV/JSON logs.
+
+### Single Milestone DAgger Training
+
+Train a specific milestone with custom settings:
+
+```bash
+/home/heatz123/anaconda3/envs/pokeagent/bin/python3 rl_training/dagger_pokemon_milestone.py \
+    --milestone RIVAL_HOUSE \
+    --num-iterations 15 \
+    --episodes-per-iter 10 \
+    --max-episode-steps 100
+```
+
+For detailed documentation, see [rl_training/DAGGER_PIPELINE_USAGE.md](rl_training/DAGGER_PIPELINE_USAGE.md).
+
+## Methodology and Scaffolding Components
+
+**(1) Overall Approach**: Neural network agent trained via DAgger with VLM-based Markovian policy synthesis. For each milestone, LLM generates tool-using policy code (Voyager-style) that provides expert guidance for neural policy training.
+
+**(2) State Information**: VLM extracts state features from raw pixels (position, objectives, spatial context) combined with privileged game memory (coordinates, Pokemon stats, items, badges, flags).
+
+**(3) External Tools**: A* pathfinding with collision detection, automated battle handler with type effectiveness, UI navigation system, OCR dialog detection, NPC avoidance, milestone-specific tool compositions.
+
+**(4) Memory Systems**: Persistent knowledge base (600+ map locations with portal connections), milestone-based curriculum structure, generated policy code cache per milestone, experience replay buffers for DAgger training.
+
+**(5) Feedback Mechanisms**: Policy generation with retry logic - on failure, provides last few screenshots and execution logs from previous attempt to policy synthesis function for refinement and regeneration.
+
+**(6) Fine-tuning**: DAgger (Dataset Aggregation) training where neural policy iteratively learns from VLM-synthesized expert policy guidance across milestone curriculum (dagger_pokemon.py, dagger_pokemon_milestone.py).
+
+**Technical Stack**: Google Gemini 2.5 / OpenAI GPT-4o (VLM), PyTorch 2.0+ (RL), mGBA 0.10.2 (emulation), OpenCV + pytesseract (vision), Transformers 4.36+ (models).
+
 ## Fair Use and Modification Guidelines
 
 ### ✅ Allowed Modifications
