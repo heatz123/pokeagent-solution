@@ -171,12 +171,15 @@ def get_training_status() -> Dict[str, Any]:
     return status
 
 
-def get_video_files() -> List[Dict[str, Any]]:
+def get_video_files(limit: int = 20) -> List[Dict[str, Any]]:
     """
     Get list of training video files
 
+    Args:
+        limit: Maximum number of videos to return (default 20, most recent)
+
     Returns:
-        List of video file info dicts
+        List of video file info dicts (limited to most recent)
     """
     videos_dir = os.path.join(os.path.dirname(__file__), "..", "videos")
     video_files = glob.glob(os.path.join(videos_dir, "*.mp4"))
@@ -196,7 +199,8 @@ def get_video_files() -> List[Dict[str, Any]]:
     # Sort by modification time (newest first)
     videos.sort(key=lambda x: x['modified'], reverse=True)
 
-    return videos
+    # Return only the most recent videos (limit)
+    return videos[:limit]
 
 
 def format_llm_interaction(interaction: Dict[str, Any]) -> Dict[str, Any]:
@@ -278,3 +282,181 @@ def get_statistics() -> Dict[str, Any]:
     stats['total_videos'] = len(videos)
 
     return stats
+
+
+# ============================================================================
+# DAgger Pipeline Dashboard Functions
+# ============================================================================
+
+def get_dagger_overview() -> Dict[str, Any]:
+    """
+    Get DAgger pipeline overview
+
+    Returns:
+        Overview dict with current progress
+    """
+    pipeline_dir = os.path.join(os.path.dirname(__file__), "..", "dagger_pipeline_results")
+    state_file = os.path.join(pipeline_dir, "pipeline_state.json")
+
+    if not os.path.exists(state_file):
+        return {
+            "current_milestone": None,
+            "current_phase": None,
+            "progress": {
+                "total": 0,
+                "completed": 0,
+                "in_progress": 0,
+                "failed": 0,
+                "pending": 0
+            },
+            "last_update": None
+        }
+
+    try:
+        with open(state_file, 'r') as f:
+            state = json.load(f)
+
+        return {
+            "current_milestone": state.get("current_milestone"),
+            "current_phase": state.get("current_phase"),
+            "progress": {
+                "total": state.get("total", 0),
+                "completed": state.get("completed", 0),
+                "in_progress": state.get("in_progress", 0),
+                "failed": state.get("failed", 0),
+                "pending": state.get("pending", 0)
+            },
+            "last_update": state.get("last_update")
+        }
+    except Exception as e:
+        print(f"Error reading pipeline state: {e}")
+        return {
+            "current_milestone": None,
+            "current_phase": None,
+            "progress": {
+                "total": 0,
+                "completed": 0,
+                "in_progress": 0,
+                "failed": 0,
+                "pending": 0
+            },
+            "last_update": None,
+            "error": str(e)
+        }
+
+
+def get_dagger_milestones() -> List[Dict[str, Any]]:
+    """
+    Get list of all milestones with their status
+
+    Returns:
+        List of milestone dicts
+    """
+    # Load milestone config
+    config_file = os.path.join(os.path.dirname(__file__), "..", "milestone_config.json")
+    if not os.path.exists(config_file):
+        return []
+
+    try:
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+        milestones_config = config.get('milestones', [])
+    except Exception as e:
+        print(f"Error loading milestone config: {e}")
+        return []
+
+    # Load milestone details
+    pipeline_dir = os.path.join(os.path.dirname(__file__), "..", "dagger_pipeline_results")
+    details_dir = os.path.join(pipeline_dir, "milestone_details")
+
+    milestones = []
+    for i, milestone in enumerate(milestones_config):
+        milestone_id = milestone['id']
+        detail_file = os.path.join(details_dir, f"{milestone_id}.json")
+
+        milestone_data = {
+            "id": milestone_id,
+            "description": milestone.get("description", ""),
+            "index": i,
+            "status": "pending",
+            "expert_success": None,
+            "expert_steps": None,
+            "dagger_success": None,
+            "dagger_steps": None
+        }
+
+        # Load detail if exists
+        if os.path.exists(detail_file):
+            try:
+                with open(detail_file, 'r') as f:
+                    detail = json.load(f)
+
+                milestone_data["status"] = detail.get("status", "pending")
+
+                expert = detail.get("expert", {})
+                if expert:
+                    milestone_data["expert_success"] = expert.get("success_rate")
+                    milestone_data["expert_steps"] = expert.get("mean_steps")
+
+                dagger = detail.get("dagger", {})
+                if dagger:
+                    milestone_data["dagger_success"] = dagger.get("final_success_rate")
+            except Exception as e:
+                print(f"Error loading detail for {milestone_id}: {e}")
+
+        milestones.append(milestone_data)
+
+    return milestones
+
+
+def get_dagger_milestone_detail(milestone_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get detailed information for a specific milestone
+
+    Args:
+        milestone_id: Milestone ID
+
+    Returns:
+        Milestone detail dict, or None if not found
+    """
+    pipeline_dir = os.path.join(os.path.dirname(__file__), "..", "dagger_pipeline_results")
+    detail_file = os.path.join(pipeline_dir, "milestone_details", f"{milestone_id}.json")
+
+    if not os.path.exists(detail_file):
+        return None
+
+    try:
+        with open(detail_file, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading milestone detail: {e}")
+        return None
+
+
+def get_expert_policy_code(milestone_id: str) -> Optional[str]:
+    """
+    Get expert policy Python code for a milestone
+
+    Args:
+        milestone_id: Milestone ID
+
+    Returns:
+        Python code as string, or None if not found
+    """
+    policy_file = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        ".milestone_trainer_cache",
+        "successful_policies",
+        f"{milestone_id}.py"
+    )
+
+    if not os.path.exists(policy_file):
+        return None
+
+    try:
+        with open(policy_file, 'r') as f:
+            return f.read()
+    except Exception as e:
+        print(f"Error reading policy code: {e}")
+        return None

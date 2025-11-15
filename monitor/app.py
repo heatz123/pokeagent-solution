@@ -18,7 +18,11 @@ from monitor.utils import (
     get_latest_llm_log_file,
     parse_recent_llm_logs,
     format_llm_interaction,
-    get_statistics
+    get_statistics,
+    get_dagger_overview,
+    get_dagger_milestones,
+    get_dagger_milestone_detail,
+    get_expert_policy_code
 )
 
 
@@ -147,6 +151,125 @@ def api_llm_log_raw():
             content = f.read()
 
         return content, 200, {'Content-Type': 'application/x-ndjson'}
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# DAgger Pipeline API Endpoints
+# ============================================================================
+
+@app.route('/dagger')
+def dagger_dashboard():
+    """DAgger pipeline dashboard page"""
+    return render_template('dagger_dashboard.html')
+
+
+@app.route('/api/dagger/overview')
+def api_dagger_overview():
+    """
+    Get DAgger pipeline overview
+
+    Returns:
+        JSON with pipeline progress
+    """
+    try:
+        overview = get_dagger_overview()
+        return jsonify(overview)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dagger/milestones')
+def api_dagger_milestones():
+    """
+    Get list of all milestones with their status
+
+    Returns:
+        JSON with list of milestones
+    """
+    try:
+        milestones = get_dagger_milestones()
+        return jsonify({'milestones': milestones})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dagger/milestone/<milestone_id>')
+def api_dagger_milestone_detail(milestone_id):
+    """
+    Get detailed information for a specific milestone
+
+    Args:
+        milestone_id: Milestone ID
+
+    Returns:
+        JSON with milestone details
+    """
+    try:
+        detail = get_dagger_milestone_detail(milestone_id)
+        if detail is None:
+            return jsonify({'error': 'Milestone not found'}), 404
+        return jsonify(detail)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dagger/milestone/<milestone_id>/code')
+def api_dagger_milestone_code(milestone_id):
+    """
+    Get expert policy Python code for a milestone
+
+    Args:
+        milestone_id: Milestone ID
+
+    Returns:
+        JSON with code
+    """
+    try:
+        code = get_expert_policy_code(milestone_id)
+        if code is None:
+            return jsonify({'error': 'Policy code not found'}), 404
+        return jsonify({'code': code})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/dagger_videos/<milestone_id>/<filename>')
+def serve_dagger_video(milestone_id, filename):
+    """
+    Serve DAgger video file
+
+    Args:
+        milestone_id: Milestone ID
+        filename: Video filename
+
+    Returns:
+        Video file
+    """
+    try:
+        # Security check: ensure filename is safe
+        if '..' in filename or filename.startswith('/') or '..' in milestone_id or milestone_id.startswith('/'):
+            return jsonify({'error': 'Invalid filename'}), 400
+
+        # Check in both expert_eval_videos and dagger_videos
+        base_dir = os.path.join(os.path.dirname(__file__), "..", "dagger_pipeline_results")
+
+        possible_paths = [
+            os.path.join(base_dir, "expert_eval_videos", milestone_id, filename),
+            os.path.join(base_dir, "dagger_videos", milestone_id, filename)
+        ]
+
+        video_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                video_path = path
+                break
+
+        if not video_path:
+            return jsonify({'error': 'Video not found'}), 404
+
+        return send_file(video_path, mimetype='video/mp4')
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
