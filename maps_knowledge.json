@@ -12911,6 +12911,31 @@
         "map_extraction",
         "coordinates"
       ]
+    },
+    {
+      "id": "speedrun_tip_1",
+      "content": "[SPEEDRUN TIP] ROUTE103: Manage HP carefully before engaging in battle with May on ROUTE103 to ensure a successful rival encounter",
+      "evidence_text": "Manually curated speedrun strategy knowledge",
+      "evidence_screenshot_path": "",
+      "evidence_state_path": "",
+      "created_step": 0,
+      "created_milestone": "MANUAL",
+      "created_timestamp": "2025-11-14T00:00:00.000000",
+      "updated_step": null,
+      "updated_milestone": null,
+      "updated_timestamp": null,
+      "validation": {
+        "status": "verified",
+        "validity_score": 1.0,
+        "reasoning": "Manually curated speedrun strategy knowledge",
+        "validated_timestamp": "2025-11-14T00:00:00.000000"
+      },
+      "tags": [
+        "speedrun",
+        "strategy",
+        "route103",
+        "battle"
+      ]
     }
   ]
 }
