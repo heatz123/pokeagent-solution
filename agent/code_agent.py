@@ -74,7 +74,7 @@ class CodeAgent:
         """Initialize the CodeAgent with OpenAI, Claude, or Gemini"""
 
         # Initialize client based on model
-        if model == "gpt-5":
+        if model.startswith("gpt-"):
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
                 raise ValueError("OPENAI_API_KEY environment variable not set")
@@ -100,7 +100,7 @@ class CodeAgent:
             self.provider = "gemini"
 
         else:
-            raise ValueError(f"Unsupported model: {model}. Use 'gpt-5', 'claude-sonnet-4-5-20250929', or 'gemini-2.5-flash'")
+            raise ValueError(f"Unsupported model: {model}. Use 'gpt-5', 'gpt-5.1', 'claude-sonnet-4-5-20250929', or 'gemini-2.5-flash'")
 
         self.model = model
         self.llm_logger = get_llm_logger()

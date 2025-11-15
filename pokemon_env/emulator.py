@@ -1411,7 +1411,10 @@ class EmeraldEmulator:
                     if not self.milestone_tracker.is_completed("ROUTE_104_SOUTH"):
                         return False
                     location = game_state.get("player", {}).get("location", "")
-                    return "PETALBURG_WOODS" in str(location).upper() or "PETALBURG WOODS" in str(location).upper()
+                    location_upper = str(location).upper()
+                    return ("MAP_18_0B" in location_upper or
+                            "PETALBURG_WOODS" in location_upper or
+                            "PETALBURG WOODS" in location_upper)
                 return False
             elif milestone_id == "TEAM_AQUA_GRUNT_DEFEATED":
                 # Team Aqua grunt defeated at specific location in Petalburg Woods
@@ -1420,9 +1423,13 @@ class EmeraldEmulator:
                     if not self.milestone_tracker.is_completed("PETALBURG_WOODS"):
                         return False
                     location = game_state.get("player", {}).get("location", "")
-                    # Check if in Petalburg Woods and at specific coordinates
-                    if "PETALBURG_WOODS" in str(location).upper() or "PETALBURG WOODS" in str(location).upper():
-                        # Check for Map_18_0B at coords (26,23) or (27,23)
+                    location_upper = str(location).upper()
+                    # Check if in Petalburg Woods (Map_18_0B) and at specific coordinates
+                    is_in_petalburg = ("MAP_18_0B" in location_upper or
+                                      "PETALBURG_WOODS" in location_upper or
+                                      "PETALBURG WOODS" in location_upper)
+                    if is_in_petalburg:
+                        # Check for coords (26,23) or (27,23)
                         pos = game_state.get("player", {}).get("pos", [])
                         if len(pos) >= 2:
                             x, y = pos[0], pos[1]
@@ -1443,8 +1450,8 @@ class EmeraldEmulator:
                     if not self.milestone_tracker.is_completed("PETALBURG_WOODS"):
                         return False
                     location = game_state.get("player", {}).get("location", "")
-                    return (("ROUTE_104" in str(location).upper() or "ROUTE 104" in str(location).upper()) and 
-                            self.milestone_tracker.is_completed("DEVON_GOODS_OBTAINED"))
+                    return (("ROUTE_104" in str(location).upper() or "ROUTE 104" in str(location).upper()) and
+                            self.milestone_tracker.is_completed("TEAM_AQUA_GRUNT_DEFEATED"))
                 return False
             elif milestone_id == "DEVON_CORP_VISITED":
                 if game_state:

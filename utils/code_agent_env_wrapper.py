@@ -123,6 +123,9 @@ class CodeAgentEnvWrapper:
         if not self.curriculum_mode:
             raise ValueError("start_episode() is only for curriculum mode. Set curriculum_mode=True in __init__()")
 
+        # Clear logs for new episode (logs should accumulate during episode, not per step)
+        self.policy_logs = []
+
         # Clear schema registry before new episode (same as CodeAgent)
         self.schema_registry.clear()
 
@@ -493,10 +496,10 @@ Examples:
 
         logger.info(f"      🔍 Auto-searching location: '{location}'")
 
-        # Search knowledge base (limit to 50 for better prompt efficiency)
+        # Search knowledge base (limit to 100 for better prompt efficiency)
         results = self.agent.knowledge_base.get_by_keywords(
             query_text=location,
-            limit=50,
+            limit=100,
             always_include_recent=0  # Prioritize LCS relevance over recency
         )
 
@@ -545,6 +548,18 @@ Examples:
             logger.error(f"❌ Failed to compile policy: {e}")
             self.episode_policy_fn = None
 
+    def set_episode_policy(self, policy_code: str):
+        """
+        Set episode policy code directly (for loading from file)
+
+        Args:
+            policy_code: Python code containing a run(state) function
+        """
+        self.episode_policy_code = policy_code
+        self._compile_episode_policy()
+        self.episode_started = True
+        logger.info(f"   📥 Set episode policy ({len(policy_code)} chars)")
+
     def get_action(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Get action from CodeAgent
@@ -560,10 +575,6 @@ Examples:
                 # Curriculum mode: Use pre-generated policy
                 if not self.episode_started or self.episode_policy_fn is None:
                     raise ValueError("Call start_episode() before get_action() in curriculum mode")
-
-                # Clear logs before execution (if logging enabled)
-                if self.enable_policy_logging:
-                    self.policy_logs = []
 
                 # Create State object with VLM support (same as CodeAgent)
                 from utils.vlm_state import State

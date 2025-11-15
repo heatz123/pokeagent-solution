@@ -123,6 +123,9 @@ def format_tile_to_symbol(tile, x=None, y=None, location_name=None, player_pos=N
             return "J"
     elif "IMPASSABLE" in behavior_name or "SEALED" in behavior_name:
         return "#"  # Blocked
+    elif "BRIDGE" in behavior_name or "REFLECTION" in behavior_name:
+        # Bridge tiles and reflections under bridges are walkable
+        return "." if collision == 0 else "#"
     elif "INDOOR" in behavior_name:
         return "."  # Indoor tiles are walkable
     elif "DECORATION" in behavior_name or "HOLDS" in behavior_name:

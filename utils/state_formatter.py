@@ -19,6 +19,12 @@ from utils import state_formatter as sf
 
 logger = logging.getLogger(__name__)
 
+# Map ID to location name mapping for raw map IDs that don't have proper names
+MAP_ID_TO_LOCATION_NAME = {
+    "Map_18_0B": "Petalburg Woods",
+    # Add more mappings as needed
+}
+
 # Load maps_ascii.json at module level
 _MAPS_ASCII = None
 def _load_maps_ascii():
@@ -35,7 +41,7 @@ def _load_maps_ascii():
             _MAPS_ASCII = {}
     return _MAPS_ASCII
 
-def _location_name_to_layout_key(location_name):
+def _location_name_to_layout_key(location_name, maps_ascii=None):
     """Convert location name to LAYOUT_* key format.
 
     Examples:
@@ -45,12 +51,19 @@ def _location_name_to_layout_key(location_name):
 
     Args:
         location_name: The location name from game state
+        maps_ascii: Optional dict of available maps for fallback logic
 
     Returns:
         The LAYOUT_* key to lookup in maps_ascii.json
     """
     if not location_name:
         return None
+
+    # Check if location_name is a raw map ID that needs to be mapped
+    if location_name in MAP_ID_TO_LOCATION_NAME:
+        mapped_name = MAP_ID_TO_LOCATION_NAME[location_name]
+        logger.info(f"Mapped raw map ID '{location_name}' to '{mapped_name}'")
+        location_name = mapped_name
 
     # Remove special characters
     import re
@@ -64,7 +77,27 @@ def _location_name_to_layout_key(location_name):
     normalized = cleaned.replace(' ', '_').upper()
 
     # Add LAYOUT_ prefix
-    return f"LAYOUT_{normalized}"
+    layout_key = f"LAYOUT_{normalized}"
+
+    # If maps_ascii is provided and the key doesn't exist, try fallback patterns
+    if maps_ascii and layout_key not in maps_ascii:
+        # Check for generic building patterns (Pokemon Center, Mart, etc.)
+        # e.g., "PETALBURG_CITY_POKEMON_CENTER_1F" -> "POKEMON_CENTER_1F"
+        generic_patterns = [
+            r'.*_(POKEMON_CENTER_\dF)',
+            r'.*_(MART)',
+            r'.*_(GYM)',
+        ]
+
+        for pattern in generic_patterns:
+            match = re.search(pattern, normalized)
+            if match:
+                generic_key = f"LAYOUT_{match.group(1)}"
+                if generic_key in maps_ascii:
+                    logger.info(f"Using generic layout '{generic_key}' for location '{location_name}'")
+                    return generic_key
+
+    return layout_key
 
 # Global location tracking - MapStitcher handles all persistent storage
 CURRENT_LOCATION = None
@@ -410,6 +443,7 @@ def filter_state_for_llm(state_dict):
     - milestones: Formatted separately in prompts
     - movement_preview: Not needed for CodeAgent
     - npcs: Unreliable position data
+    - player_position: Unreliable position data
 
     Note: player.facing is now KEPT (action-based, reliable) unlike memory-based facing
 
@@ -428,15 +462,16 @@ def filter_state_for_llm(state_dict):
     filtered.pop('milestones', None)           # Formatted separately
     filtered.pop('movement_preview', None)     # Not needed for CodeAgent
 
-    # 2. Remove unreliable NPCs data
+    # 2. Remove unreliable data
     if 'map' in filtered:
         filtered['map'].pop('npcs', None)
-    
+        filtered['map'].pop('player_position', None)  # Unreliable
+        filtered['map'].pop('player_coords', None)   # Not often shown
+
     if 'game' in filtered:
         filtered['game'].pop('time', None)
 
-    # Note: player.facing and map.player_position.facing are now kept
-    # They are action-based (reliable) rather than memory-based (unreliable)
+    # Note: player.facing is kept (action-based, reliable)
 
     return filtered
 
@@ -539,8 +574,8 @@ def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=
     # Load maps_ascii.json
     maps_ascii = _load_maps_ascii()
 
-    # Convert location_name to LAYOUT_* key
-    layout_key = _location_name_to_layout_key(location_name)
+    # Convert location_name to LAYOUT_* key (with fallback support)
+    layout_key = _location_name_to_layout_key(location_name, maps_ascii)
 
     if not layout_key:
         error_msg = f"[STATE_FORMATTER ERROR] No location_name provided. Cannot lookup map."
@@ -568,6 +603,24 @@ def _generate_ascii_map_from_stitched_data(map_data, player_data, location_name=
     ascii_map = ascii_map_str.split('\n')
 
     print(f"[STATE_FORMATTER] Loaded map '{layout_key}' from maps_ascii.json: {map_info.get('width')}x{map_info.get('height')}")
+
+    # Overlay player position as 'P' on the map
+    if ascii_map and player_x is not None and player_y is not None:
+        map_height = len(ascii_map)
+        # Check if player position is within map bounds
+        if 0 <= player_y < map_height:
+            row = ascii_map[player_y]
+            map_width = len(row)
+            if 0 <= player_x < map_width:
+                # Convert row to list, replace character, convert back
+                row_list = list(row)
+                row_list[player_x] = 'P'
+                ascii_map[player_y] = ''.join(row_list)
+                print(f"[STATE_FORMATTER] Player marked at ({player_x}, {player_y})")
+            else:
+                print(f"[STATE_FORMATTER] Warning: Player X coordinate {player_x} out of bounds (map width: {map_width})")
+        else:
+            print(f"[STATE_FORMATTER] Warning: Player Y coordinate {player_y} out of bounds (map height: {map_height})")
 
     # Generate dynamic legend from the ascii_map
     if ascii_map:
