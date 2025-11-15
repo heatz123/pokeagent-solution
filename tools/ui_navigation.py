@@ -12,36 +12,44 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-def navigate_ui(state, intent: str = "exit") -> str:
+def navigate_ui(state, intent: str = "exit", action_guidance: Optional[str] = None) -> str:
     """
     Navigate UI elements (menus, dialogs, confirmations) using VLM.
 
     This tool analyzes the current screenshot to detect UI elements and
-    determines the appropriate action to take based on your intent.
+    determines the appropriate action to take based on your intent or custom guidance.
 
     Args:
         state: State object with VLM support
-        intent: What you want to do with the UI
+        intent: What you want to do with the UI (used when action_guidance is None)
             - "exit": Exit/close the current UI, menu, or dialog (default)
             - "confirm": Confirm the current dialog/prompt
             - "select_yes": Select "Yes" option and confirm
             - "select_no": Select "No" option and confirm
             - "cancel": Cancel/decline the current dialog
+            - "select_start": Press START button (for menus with START option)
+        action_guidance: Optional custom task context (e.g., "I'm buying potions at the mart")
+            When provided, VLM will determine the next action based on this context.
+            This is designed for markovian policies - provide the same context each step,
+            and VLM will determine the single next action based on current screen state.
 
     Returns:
-        str: Next action ('a', 'b', 'up', 'down', 'left', 'right', 'no_op')
+        str: Next action ('a', 'b', 'start', 'up', 'down', 'left', 'right', 'no_op')
 
     Example:
-        # Exit from any menu/dialog
+        # Exit from any menu/dialog (standard intent)
         action = navigate_ui(state, intent="exit")
         return action
 
-        # Confirm a dialog (e.g., "Save?")
+        # Confirm a dialog (standard intent)
         action = navigate_ui(state, intent="confirm")
         return action
 
-        # Select "Yes" in a Yes/No dialog
-        action = navigate_ui(state, intent="select_yes")
+        # Custom action guidance (new feature)
+        action = navigate_ui(state, action_guidance="I'm buying potions at the mart")
+        return action
+
+        action = navigate_ui(state, action_guidance="I'm using a potion from the bag")
         return action
 
     Common UI patterns handled:
@@ -52,6 +60,10 @@ def navigate_ui(state, intent: str = "exit") -> str:
     """
     try:
         from utils.vlm_state import add_to_state_schema
+
+        # If custom action guidance is provided, use that instead of intent
+        if action_guidance is not None:
+            return _handle_custom_action(state, action_guidance)
 
         # Register VLM queries for UI state detection
         add_to_state_schema(
@@ -128,6 +140,11 @@ def navigate_ui(state, intent: str = "exit") -> str:
             else:
                 logger.info("Canceling with 'b'")
                 return 'b'
+
+        elif intent == "select_start":
+            # Press START button (for menus that have START option)
+            logger.info("Pressing START button")
+            return 'start'
 
         else:
             logger.warning(f"Unknown intent '{intent}', defaulting to exit")
@@ -215,3 +232,48 @@ def _handle_yes_no_dialog(state, select_yes: bool) -> str:
             else:
                 logger.info("Moving to No with 'right'")
                 return 'right'
+
+
+def _handle_custom_action(state, action_guidance: str) -> str:
+    """
+    Handle custom action guidance by asking VLM for the next single action.
+
+    This function is designed for markovian policies where the same context
+    is provided each step, and VLM determines the single next action based
+    on the current screen state.
+
+    Args:
+        state: State object with VLM support
+        action_guidance: Task context (e.g., "I'm buying potions at the mart")
+
+    Returns:
+        str: Next action to take
+    """
+    from utils.vlm_state import add_to_state_schema
+
+    logger.info(f"Custom action guidance: {action_guidance}")
+
+    # Ask VLM for the next single action based on task context
+    add_to_state_schema(
+        key="next_action_for_task",
+        vlm_prompt=f"""Current task: {action_guidance}
+
+Looking at the current screen, what is the SINGLE next button press needed to progress this task?
+Consider the current UI state (menus, dialogs, selections, cursor position) and respond with ONE of: 'a', 'b', 'start', 'up', 'down', 'left', 'right', 'no_op'.
+
+Only return the action name, nothing else.""",
+        return_type=str
+    )
+
+    action = state["next_action_for_task"].lower().strip()
+    valid_actions = ['a', 'b', 'start', 'up', 'down',
+                     'left', 'right', 'no_op']
+
+    if action in valid_actions:
+        logger.info(f"VLM suggested action: {action}")
+        return action
+    else:
+        logger.warning(
+            f"VLM returned invalid action '{action}', defaulting to 'no_op'"
+        )
+        return 'no_op'
