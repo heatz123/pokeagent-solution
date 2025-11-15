@@ -180,10 +180,8 @@ This is your FIRST attempt at this milestone."""
         if logs:
             lines.append("### Debug Logs")
             lines.append(f"The code printed {len(logs)} debug messages:")
-            for i, msg in enumerate(logs[:10], 1):  # Show up to 10 logs
+            for i, msg in enumerate(logs, 1):  # Show all logs
                 lines.append(f"  {i}. {msg}")
-            if len(logs) > 10:
-                lines.append(f"  ... ({len(logs) - 10} more)")
             lines.append("")
 
         # Screenshot reference
@@ -242,6 +240,7 @@ This is your FIRST attempt at this milestone."""
         lines.append("- Function signature: `def run(state):`")
         lines.append("- Return: single action string ('up', 'down', 'left', 'right', 'a', 'b', 'start', 'select', 'no_op')")
         lines.append("- Use available tools for navigation and interaction")
+        lines.append("- DO NOT import from tools - all tool functions are already available in global scope")
         lines.append("- Access state using dict syntax: state['player']['position']")
         # lines.append("- VLM queries: Use add_to_state_schema() for visual info not in state (e.g., clock UI, battle UI)")
         # lines.append("""- Example: add_to_state_schema("is_in_battle", "Is the battle screen visible?", bool), then access via state["is_in_battle"]""")
@@ -276,7 +275,10 @@ This is your FIRST attempt at this milestone."""
 
         if attempt_history and attempt_history.get_attempt_count() > 0:
             lines.append("**TEMPORAL:**")
-            lines.append("[Frame progression analysis]")
+            lines.append("[Frame progression analysis - Note: Both attempts started from the same initial state (Screenshot #1)]")
+            lines.append("- Code analysis: Which part of the previous code logic caused this behavior?")
+            lines.append("- Root cause: What condition or assumption in the code was incorrect?")
+            lines.append("- Fix strategy: What specific logic needs to change in the new attempt?")
             lines.append("")
 
         lines.append("**KNOWLEDGE:**")

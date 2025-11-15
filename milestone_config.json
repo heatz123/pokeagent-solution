@@ -7,7 +7,8 @@
       "starting_state": null,
       "max_steps": 100,
       "max_retries": 3,
-      "timeout": 60
+      "timeout": 60,
+      "stuck_threshold": 10
     },
     {
       "id": "PLAYER_NAME_SET",
@@ -15,15 +16,17 @@
       "starting_state": "milestone_states/GAME_RUNNING_completed.state",
       "max_steps": 150,
       "max_retries": 3,
-      "timeout": 90
+      "timeout": 90,
+      "stuck_threshold": 10
     },
     {
       "id": "INTRO_CUTSCENE_COMPLETE",
       "description": "Complete intro cutscene with moving van",
       "starting_state": "milestone_states/PLAYER_NAME_SET_completed.state",
       "max_steps": 200,
-      "max_retries": 3,
-      "timeout": 120
+      "max_retries": 10,
+      "timeout": 240,
+      "stuck_threshold": 10
     },
     {
       "id": "LITTLEROOT_TOWN",
@@ -31,7 +34,8 @@
       "starting_state": "milestone_states/INTRO_CUTSCENE_COMPLETE_completed.state",
       "max_steps": 200,
       "max_retries": 3,
-      "timeout": 120
+      "timeout": 120,
+      "stuck_threshold": 10
     },
     {
       "id": "PLAYER_HOUSE_ENTERED",
@@ -39,7 +43,8 @@
       "starting_state": "milestone_states/LITTLEROOT_TOWN_completed.state",
       "max_steps": 300,
       "max_retries": 3,
-      "timeout": 180
+      "timeout": 180,
+      "stuck_threshold": 10
     },
     {
       "id": "PLAYER_BEDROOM",
@@ -47,7 +52,8 @@
       "starting_state": "milestone_states/PLAYER_HOUSE_ENTERED_completed.state",
       "max_steps": 200,
       "max_retries": 10,
-      "timeout": 120
+      "timeout": 120,
+      "stuck_threshold": 10
     },
     {
       "id": "CLOCK_INTERACT",
@@ -55,7 +61,8 @@
       "starting_state": "milestone_states/PLAYER_BEDROOM_completed.state",
       "max_steps": 300,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 180,
+      "stuck_threshold": 10
     },
     {
       "id": "GO_DOWNSTAIRS_TO_1F",
@@ -63,7 +70,8 @@
       "starting_state": "milestone_states/CLOCK_INTERACT_completed.state",
       "max_steps": 150,
       "max_retries": 5,
-      "timeout": 90
+      "timeout": 90,
+      "stuck_threshold": 10
     },
     {
       "id": "LEAVE_HOUSE",
@@ -71,23 +79,17 @@
       "starting_state": "milestone_states/GO_DOWNSTAIRS_TO_1F_completed.state",
       "max_steps": 150,
       "max_retries": 5,
-      "timeout": 90
-    },
-    {
-      "id": "CLOCK_SET",
-      "description": "Set the clock in player's bedroom and leave the house",
-      "starting_state": "milestone_states/LEAVE_HOUSE_completed.state",
-      "max_steps": 100,
-      "max_retries": 10,
-      "timeout": 180
+      "timeout": 90,
+      "stuck_threshold": 10
     },
     {
       "id": "RIVAL_HOUSE",
       "description": "Visit May's house next door",
-      "starting_state": "milestone_states/CLOCK_SET_completed.state",
+      "starting_state": "milestone_states/LEAVE_HOUSE_completed.state",
       "max_steps": 200,
       "max_retries": 10,
-      "timeout": 120
+      "timeout": 120,
+      "stuck_threshold": 10
     },
     {
       "id": "RIVAL_BEDROOM",
@@ -95,7 +97,8 @@
       "starting_state": "milestone_states/RIVAL_HOUSE_completed.state",
       "max_steps": 200,
       "max_retries": 10,
-      "timeout": 120
+      "timeout": 120,
+      "stuck_threshold": 10
     },
     {
       "id": "GO_DOWNSTAIRS_RIVAL_HOUSE",
@@ -103,7 +106,8 @@
       "starting_state": "milestone_states/RIVAL_BEDROOM_completed.state",
       "max_steps": 150,
       "max_retries": 5,
-      "timeout": 90
+      "timeout": 90,
+      "stuck_threshold": 10
     },
     {
       "id": "EXIT_RIVAL_HOUSE",
@@ -111,7 +115,8 @@
       "starting_state": "milestone_states/GO_DOWNSTAIRS_RIVAL_HOUSE_completed.state",
       "max_steps": 150,
       "max_retries": 10,
-      "timeout": 90
+      "timeout": 90,
+      "stuck_threshold": 10
     },
     {
       "id": "LITTLEROOT_TO_ROUTE101",
@@ -119,7 +124,8 @@
       "starting_state": "milestone_states/EXIT_RIVAL_HOUSE_completed.state",
       "max_steps": 200,
       "max_retries": 10,
-      "timeout": 120
+      "timeout": 120,
+      "stuck_threshold": 10
     },
     {
       "id": "ROUTE_101",
@@ -127,71 +133,107 @@
       "starting_state": "milestone_states/LITTLEROOT_TO_ROUTE101_completed.state",
       "max_steps": 300,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 180,
+      "stuck_threshold": 10
     },
     {
       "id": "STARTER_CHOSEN",
-      "description": "Choose starter Pokemon",
+      "description": "Choose starter Pokemon as Mudkip",
       "starting_state": "milestone_states/ROUTE_101_completed.state",
-      "max_steps": 500,
-      "max_retries": 10,
-      "timeout": 300
+      "max_steps": 200,
+      "max_retries": 20,
+      "timeout": 300,
+      "stuck_threshold": 10
     },
     {
       "id": "BIRCH_LAB_VISITED",
       "description": "Visit Professor Birch's lab",
       "starting_state": "milestone_states/STARTER_CHOSEN_completed.state",
       "max_steps": 300,
+      "max_retries": 20,
+      "timeout": 180,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "EXIT_BIRCH_LAB",
+      "description": "Exit Birch's lab to Littleroot Town (outside)",
+      "starting_state": "milestone_states/BIRCH_LAB_VISITED_completed.state",
+      "max_steps": 150,
+      "max_retries": 20,
+      "timeout": 90,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "LITTLEROOT_TO_ROUTE101_AFTER_LAB",
+      "description": "Leave Littleroot Town and head to Route 101 (after visiting Birch's lab)",
+      "starting_state": "milestone_states/EXIT_BIRCH_LAB_completed.state",
+      "max_steps": 200,
+      "max_retries": 20,
+      "timeout": 120,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "ROUTE101_TO_OLDALE_FIRST_TIME",
+      "description": "Travel from Route 101 to Oldale Town (first time)",
+      "starting_state": "milestone_states/LITTLEROOT_TO_ROUTE101_AFTER_LAB_completed.state",
+      "max_steps": 250,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 150,
+      "stuck_threshold": 10
     },
     {
       "id": "OLDALE_TOWN",
       "description": "Arrive at Oldale Town",
-      "starting_state": "milestone_states/BIRCH_LAB_VISITED_completed.state",
+      "starting_state": "milestone_states/ROUTE101_TO_OLDALE_FIRST_TIME_completed.state",
       "max_steps": 300,
-      "max_retries": 10,
-      "timeout": 180
+      "max_retries": 20,
+      "timeout": 180,
+      "stuck_threshold": 10
     },
     {
       "id": "ROUTE_103",
       "description": "Travel to Route 103 and battle with May",
       "starting_state": "milestone_states/OLDALE_TOWN_completed.state",
       "max_steps": 500,
-      "max_retries": 10,
-      "timeout": 300
+      "max_retries": 20,
+      "timeout": 300,
+      "stuck_threshold": 10
     },
     {
       "id": "MAY_ROUTE103_INTERACTION",
       "description": "Interact with May on Route 103 (dialog contains 'MAY: I think I know')",
       "starting_state": "milestone_states/ROUTE_103_completed.state",
       "max_steps": 300,
-      "max_retries": 10,
-      "timeout": 180
+      "max_retries": 20,
+      "timeout": 180,
+      "stuck_threshold": 10
     },
     {
       "id": "BACK_TO_OLDALE_FROM_ROUTE103",
       "description": "Return to Oldale Town from Route 103 (on the way back to get Pokedex)",
       "starting_state": "milestone_states/MAY_ROUTE103_INTERACTION_completed.state",
       "max_steps": 250,
-      "max_retries": 10,
-      "timeout": 150
+      "max_retries": 20,
+      "timeout": 150,
+      "stuck_threshold": 10
     },
     {
       "id": "BACK_TO_ROUTE101_FROM_OLDALE",
       "description": "Return to Route 101 from Oldale Town (heading back to Littleroot)",
       "starting_state": "milestone_states/BACK_TO_OLDALE_FROM_ROUTE103_completed.state",
       "max_steps": 250,
-      "max_retries": 10,
-      "timeout": 150
+      "max_retries": 15,
+      "timeout": 150,
+      "stuck_threshold": 10
     },
     {
       "id": "BACK_TO_LITTLEROOT_FOR_POKEDEX",
       "description": "Return to Littleroot Town after Route 103 (to get Pokedex)",
       "starting_state": "milestone_states/BACK_TO_ROUTE101_FROM_OLDALE_completed.state",
       "max_steps": 250,
-      "max_retries": 10,
-      "timeout": 150
+      "max_retries": 15,
+      "timeout": 150,
+      "stuck_threshold": 10
     },
     {
       "id": "ENTER_BIRCH_LAB_FOR_POKEDEX",
@@ -199,7 +241,8 @@
       "starting_state": "milestone_states/BACK_TO_LITTLEROOT_FOR_POKEDEX_completed.state",
       "max_steps": 200,
       "max_retries": 10,
-      "timeout": 120
+      "timeout": 120,
+      "stuck_threshold": 10
     },
     {
       "id": "POKEDEX_DIALOG_CONFIRMED",
@@ -207,47 +250,53 @@
       "starting_state": "milestone_states/ENTER_BIRCH_LAB_FOR_POKEDEX_completed.state",
       "max_steps": 300,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 180,
+      "stuck_threshold": 10
     },
     {
       "id": "RECEIVED_POKEDEX",
-      "description": "Visit Birch's lab to receive Pokedex from Professor Birch",
+      "description": "Receive Pokedex and exit Birch's lab to Littleroot Town",
       "starting_state": "milestone_states/POKEDEX_DIALOG_CONFIRMED_completed.state",
       "max_steps": 300,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 180,
+      "stuck_threshold": 10
     },
     {
-      "id": "LEAVE_LITTLEROOT_TO_ROUTE101",
-      "description": "Leave Littleroot Town toward Route 101 (after getting Pokedex)",
+      "id": "ROUTE101_AFTER_POKEDEX",
+      "description": "Travel to Route 101 (after getting Pokedex, heading to Oldale)",
       "starting_state": "milestone_states/RECEIVED_POKEDEX_completed.state",
-      "max_steps": 200,
-      "max_retries": 10,
-      "timeout": 120
+      "max_steps": 250,
+      "max_retries": 20,
+      "timeout": 150,
+      "stuck_threshold": 10
     },
     {
-      "id": "OLDALE_TO_ROUTE102",
-      "description": "Pass through Oldale Town on the way to Route 102",
-      "starting_state": "milestone_states/LEAVE_LITTLEROOT_TO_ROUTE101_completed.state",
+      "id": "OLDALE_AFTER_POKEDEX",
+      "description": "Arrive at Oldale Town (after getting Pokedex, heading to Route 102)",
+      "starting_state": "milestone_states/ROUTE101_AFTER_POKEDEX_completed.state",
       "max_steps": 250,
       "max_retries": 10,
-      "timeout": 150
+      "timeout": 150,
+      "stuck_threshold": 10
     },
     {
       "id": "ROUTE_102",
       "description": "Travel to Route 102",
-      "starting_state": "milestone_states/OLDALE_TO_ROUTE102_completed.state",
+      "starting_state": "milestone_states/OLDALE_AFTER_POKEDEX_completed.state",
       "max_steps": 250,
       "max_retries": 10,
-      "timeout": 150
+      "timeout": 150,
+      "stuck_threshold": 10
     },
     {
       "id": "PETALBURG_CITY",
       "description": "Arrive at Petalburg City",
       "starting_state": "milestone_states/ROUTE_102_completed.state",
-      "max_steps": 300,
+      "max_steps": 400,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 240,
+      "stuck_threshold": 10
     },
     {
       "id": "DAD_FIRST_MEETING",
@@ -255,7 +304,8 @@
       "starting_state": "milestone_states/PETALBURG_CITY_completed.state",
       "max_steps": 300,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 180,
+      "stuck_threshold": 10
     },
     {
       "id": "DAD_DIALOG_CONFIRMED",
@@ -263,63 +313,170 @@
       "starting_state": "milestone_states/DAD_FIRST_MEETING_completed.state",
       "max_steps": 300,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 180,
+      "stuck_threshold": 10
     },
     {
-      "id": "EXIT_PETALBURG_GYM",
-      "description": "Exit Petalburg Gym after meeting Dad (heading to Route 104 South)",
+      "id": "GYM_CUTSCENE_OUTSIDE",
+      "description": "Gym cutscene starts and player is moved outside gym",
       "starting_state": "milestone_states/DAD_DIALOG_CONFIRMED_completed.state",
       "max_steps": 150,
       "max_retries": 10,
-      "timeout": 90
+      "timeout": 90,
+      "stuck_threshold": 10
     },
     {
-      "id": "GYM_EXPLANATION",
-      "description": "Receive gym explanation from Dad",
-      "starting_state": "milestone_states/EXIT_PETALBURG_GYM_completed.state",
-      "max_steps": 300,
+      "id": "BACK_IN_GYM_AFTER_CUTSCENE",
+      "description": "Cutscene ends and player is back inside Petalburg Gym",
+      "starting_state": "milestone_states/GYM_CUTSCENE_OUTSIDE_completed.state",
+      "max_steps": 150,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 90,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "EXIT_PETALBURG_GYM",
+      "description": "Exit Petalburg Gym after receiving gym explanation",
+      "starting_state": "milestone_states/BACK_IN_GYM_AFTER_CUTSCENE_completed.state",
+      "max_steps": 150,
+      "max_retries": 10,
+      "timeout": 90,
+      "stuck_threshold": 20
+    },
+    {
+      "id": "ENTER_PETALBURG_CENTER",
+      "description": "Enter Petalburg City Pokemon Center",
+      "starting_state": "milestone_states/EXIT_PETALBURG_GYM_completed.state",
+      "max_steps": 200,
+      "max_retries": 10,
+      "timeout": 120,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "HEAL_AT_PETALBURG_CENTER",
+      "description": "Heal Pokemon at Petalburg City Pokemon Center (all Pokemon must have full HP)",
+      "starting_state": "milestone_states/ENTER_PETALBURG_CENTER_completed.state",
+      "max_steps": 50,
+      "max_retries": 20,
+      "timeout": 120,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "EXIT_PETALBURG_CENTER",
+      "description": "Exit Petalburg City Pokemon Center after healing",
+      "starting_state": "milestone_states/HEAL_AT_PETALBURG_CENTER_completed.state",
+      "max_steps": 150,
+      "max_retries": 10,
+      "timeout": 90,
+      "stuck_threshold": 10
     },
     {
       "id": "ROUTE_104_SOUTH",
       "description": "Travel to Route 104 (South)",
-      "starting_state": "milestone_states/GYM_EXPLANATION_completed.state",
+      "starting_state": "milestone_states/EXIT_PETALBURG_CENTER_completed.state",
       "max_steps": 300,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 180,
+      "stuck_threshold": 10
     },
     {
       "id": "PETALBURG_WOODS",
       "description": "Navigate through Petalburg Woods",
       "starting_state": "milestone_states/ROUTE_104_SOUTH_completed.state",
       "max_steps": 500,
-      "max_retries": 10,
-      "timeout": 300
+      "max_retries": 20,
+      "timeout": 300,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "TEAM_AQUA_GRUNT_DEFEATED",
+      "description": "Defeat Team Aqua grunt in Petalburg Woods",
+      "starting_state": "milestone_states/PETALBURG_WOODS_completed.state",
+      "max_steps": 400,
+      "max_retries": 15,
+      "timeout": 240,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "ROUTE_104_NORTH",
+      "description": "Exit Petalburg Woods to Route 104 North",
+      "starting_state": "milestone_states/TEAM_AQUA_GRUNT_DEFEATED_completed.state",
+      "max_steps": 400,
+      "max_retries": 15,
+      "timeout": 240,
+      "stuck_threshold": 10
     },
     {
       "id": "RUSTBORO_CITY",
-      "description": "Arrive at Rustboro City",
-      "starting_state": "milestone_states/PETALBURG_WOODS_completed.state",
+      "description": "Arrive at Rustboro City (x=16) from Route 104 north section",
+      "starting_state": "milestone_states/ROUTE_104_NORTH_completed.state",
       "max_steps": 300,
+      "max_retries": 15,
+      "timeout": 180,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "RUSTBORO_CENTER_ENTERED",
+      "description": "Enter Rustboro City Pokemon Center",
+      "starting_state": "milestone_states/RUSTBORO_CITY_completed.state",
+      "max_steps": 200,
+      "max_retries": 15,
+      "timeout": 120,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "HEAL_AT_RUSTBORO_CENTER",
+      "description": "Heal Pokemon at Rustboro City Pokemon Center (all Pokemon must have full HP)",
+      "starting_state": "milestone_states/RUSTBORO_CENTER_ENTERED_completed.state",
+      "max_steps": 50,
+      "max_retries": 20,
+      "timeout": 120,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "RUSTBORO_CENTER_EXITED",
+      "description": "Exit Rustboro City Pokemon Center after healing",
+      "starting_state": "milestone_states/HEAL_AT_RUSTBORO_CENTER_completed.state",
+      "max_steps": 150,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 90,
+      "stuck_threshold": 10
     },
     {
       "id": "RUSTBORO_GYM_ENTERED",
       "description": "Enter Rustboro Gym",
-      "starting_state": "milestone_states/RUSTBORO_CITY_completed.state",
+      "starting_state": "milestone_states/RUSTBORO_CENTER_EXITED_completed.state",
       "max_steps": 300,
       "max_retries": 10,
-      "timeout": 180
+      "timeout": 180,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "TRAINER_JOSH_BATTLE",
+      "description": "Battle with Trainer Josh at Rustboro Gym (coordinates 5,13)",
+      "starting_state": "milestone_states/RUSTBORO_GYM_ENTERED_completed.state",
+      "max_steps": 200,
+      "max_retries": 10,
+      "timeout": 120,
+      "stuck_threshold": 10
+    },
+    {
+      "id": "ROXANNE_BATTLE",
+      "description": "Battle with Gym Leader Roxanne at coordinates (5,2)",
+      "starting_state": "milestone_states/TRAINER_JOSH_BATTLE_completed.state",
+      "max_steps": 200,
+      "max_retries": 10,
+      "timeout": 240,
+      "stuck_threshold": 10
     },
     {
       "id": "STONE_BADGE",
-      "description": "Defeat Gym Leader Roxanne and receive Stone Badge (first gym badge)",
-      "starting_state": "milestone_states/RUSTBORO_GYM_ENTERED_completed.state",
-      "max_steps": 800,
-      "max_retries": 5,
-      "timeout": 480
+      "description": "Exit Rustboro Gym after defeating Roxanne",
+      "starting_state": "milestone_states/ROXANNE_BATTLE_completed.state",
+      "max_steps": 400,
+      "max_retries": 15,
+      "timeout": 400,
+      "stuck_threshold": 10
     }
   ]
 }

@@ -49,12 +49,6 @@ class MilestoneManager:
             "condition": "'LITTLEROOT TOWN BRENDANS HOUSE 2F' in str(state.get('player', {}).get('location', '')).upper()"
         },
         {
-            "id": "CLOCK_SET",
-            "description": "Set the clock in player's bedroom and leave the house",
-            "category": "task",
-            "condition": "'LITTLEROOT' in str(state.get('player', {}).get('location', '')).upper() and 'HOUSE' not in str(state.get('player', {}).get('location', '')).upper() and 'LAB' not in str(state.get('player', {}).get('location', '')).upper()"
-        },
-        {
             "id": "RIVAL_HOUSE",
             "description": "Visit May's house next door",
             "category": "location",
@@ -222,51 +216,84 @@ class MilestoneManager:
 
     def get_ordered_milestones(self) -> list:
         """
-        Get all milestones (custom only) in correct order
+        Get all milestones in correct order
 
-        Builds milestone order from insert_after chain.
-        ALL_MILESTONES is kept for backward compatibility but not used here.
+        Algorithm:
+        1. Add all server milestones first (in registration order)
+        2. Insert custom milestones in order at their insert_after positions
+
+        This is simple and preserves registration order.
 
         Returns:
-            List of milestone dicts with id, description, category
+            List of milestone dicts with id, description, category, insert_after
         """
         if not self.custom_milestones:
             return []
 
-        # Build adjacency list from insert_after relationships
-        children = {}  # parent_id -> [child milestone dicts]
-        roots = []  # Milestones with insert_after=None
+        # Define server categories
+        server_categories = {'location', 'task', 'story', 'badge', 'event', 'item', 'pokemon', 'intro', 'system'}
 
-        for custom in self.custom_milestones:
-            parent_id = custom["insert_after"]
-
-            if parent_id is None:
-                roots.append(custom)
-            else:
-                if parent_id not in children:
-                    children[parent_id] = []
-                children[parent_id].append(custom)
-
-        # Build ordered list by traversing the tree
+        # Step 1: Add all server milestones in registration order
         result = []
+        for milestone in self.custom_milestones:
+            category = milestone.get("category", "")
+            if category in server_categories:
+                result.append({
+                    "id": milestone["id"],
+                    "description": milestone["description"],
+                    "category": category,
+                    "insert_after": milestone.get("insert_after")
+                })
 
-        def add_subtree(milestone):
-            """Add milestone and all its children to result"""
-            result.append({
-                "id": milestone["id"],
-                "description": milestone["description"],
-                "category": milestone["category"]
-            })
+        # Step 2: Insert custom milestones at their insert_after positions
+        # Use multiple passes to handle chains (e.g., A→B→C where B is also custom)
+        remaining_customs = []
+        for milestone in self.custom_milestones:
+            category = milestone.get("category", "")
+            if category not in server_categories:
+                remaining_customs.append({
+                    "id": milestone["id"],
+                    "description": milestone["description"],
+                    "category": category,
+                    "insert_after": milestone.get("insert_after")
+                })
 
-            # Add all children
-            milestone_id = milestone["id"]
-            if milestone_id in children:
-                for child in children[milestone_id]:
-                    add_subtree(child)
+        # Process customs in multiple passes
+        max_iterations = len(remaining_customs) + 1
+        for _ in range(max_iterations):
+            if not remaining_customs:
+                break
 
-        # Start from roots (should be only GAME_RUNNING)
-        for root in roots:
-            add_subtree(root)
+            newly_added = []
+
+            for custom in remaining_customs:
+                insert_after_id = custom.get("insert_after")
+
+                # Find insert_after position in result
+                found = False
+                for i, m in enumerate(result):
+                    if m["id"] == insert_after_id:
+                        # Insert right after this position
+                        result.insert(i + 1, custom)
+                        newly_added.append(custom)
+                        found = True
+                        break
+
+                if not found and insert_after_id is None:
+                    # No parent, add at end
+                    result.append(custom)
+                    newly_added.append(custom)
+
+            # Remove added customs
+            for added in newly_added:
+                remaining_customs.remove(added)
+
+            # Stop if no progress
+            if not newly_added:
+                # Add remaining at end (orphaned customs)
+                for custom in remaining_customs:
+                    result.append(custom)
+                break
 
         return result
 
