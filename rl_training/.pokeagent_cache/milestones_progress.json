@@ -1,0 +1,69 @@
+{
+  "milestones": {
+    "GAME_RUNNING": {
+      "completed": true,
+      "timestamp": 1762964391.7551088,
+      "first_completed": 1762964391.7551088,
+      "split_time": 0.0,
+      "split_formatted": "00:00:00",
+      "total_time": 0.0,
+      "total_formatted": "00:00:00"
+    },
+    "PLAYER_NAME_SET": {
+      "completed": true,
+      "timestamp": 1762964391.7552545,
+      "first_completed": 1762964391.7552545,
+      "split_time": 0.0001456737518310547,
+      "split_formatted": "00:00:00",
+      "total_time": 0.0001456737518310547,
+      "total_formatted": "00:00:00"
+    },
+    "INTRO_CUTSCENE_COMPLETE": {
+      "completed": true,
+      "timestamp": 1762964670.9775965,
+      "first_completed": 1762964670.9775965,
+      "split_time": 279.22234201431274,
+      "split_formatted": "00:04:39",
+      "total_time": 279.2224876880646,
+      "total_formatted": "00:04:39"
+    },
+    "LITTLEROOT_TOWN": {
+      "completed": true,
+      "timestamp": 1762964857.9371834,
+      "first_completed": 1762964857.9371834,
+      "split_time": 186.9595868587494,
+      "split_formatted": "00:03:06",
+      "total_time": 466.18207454681396,
+      "total_formatted": "00:07:46"
+    },
+    "PLAYER_HOUSE_ENTERED": {
+      "completed": true,
+      "timestamp": 1763021840.5449889,
+      "first_completed": 1763021840.5449889,
+      "split_time": 56982.607805490494,
+      "split_formatted": "15:49:42",
+      "total_time": 57448.78988003731,
+      "total_formatted": "15:57:28"
+    },
+    "PLAYER_BEDROOM": {
+      "completed": true,
+      "timestamp": 1763036801.0739782,
+      "first_completed": 1763036801.0739782,
+      "split_time": 14960.528989315033,
+      "split_formatted": "04:09:20",
+      "total_time": 72409.31886935234,
+      "total_formatted": "20:06:49"
+    },
+    "CLOCK_SET": {
+      "completed": true,
+      "timestamp": 1763037201.5333824,
+      "first_completed": 1763037201.5333824,
+      "split_time": 400.4594042301178,
+      "split_formatted": "00:06:40",
+      "total_time": 72809.77827358246,
+      "total_formatted": "20:13:29"
+    }
+  },
+  "last_updated": 1763037247.9924543,
+  "version": "1.0"
+}

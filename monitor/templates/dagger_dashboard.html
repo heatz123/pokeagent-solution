@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DAgger Pipeline Dashboard</title>
+
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Prism.js for code highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet">
+
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .dashboard-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .progress-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .milestone-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 1rem;
+        }
+
+        .milestone-header {
+            padding: 1rem 1.5rem;
+            cursor: pointer;
+            border-radius: 10px 10px 0 0;
+            transition: background-color 0.2s;
+        }
+
+        .milestone-header:hover {
+            background-color: #f8f9fa;
+        }
+
+        .milestone-body {
+            padding: 1.5rem;
+            border-top: 1px solid #dee2e6;
+        }
+
+        .status-badge {
+            font-size: 0.9rem;
+            padding: 0.35rem 0.75rem;
+        }
+
+        .stat-box {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .stat-label {
+            font-size: 0.875rem;
+            color: #6c757d;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #212529;
+        }
+
+        .code-modal .modal-dialog {
+            max-width: 900px;
+        }
+
+        .video-modal .modal-dialog {
+            max-width: 800px;
+        }
+
+        video {
+            width: 100%;
+            border-radius: 8px;
+        }
+
+        pre[class*="language-"] {
+            margin: 0;
+            border-radius: 8px;
+            max-height: 500px;
+        }
+
+        .btn-sm-custom {
+            font-size: 0.875rem;
+            padding: 0.25rem 0.75rem;
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #6c757d;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid px-4 py-3">
+        <!-- Header -->
+        <div class="dashboard-header">
+            <h1 class="mb-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="bi bi-robot" viewBox="0 0 16 16">
+                    <path d="M6 12.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5M3 8.062C3 6.76 4.235 5.765 5.53 5.886a26.6 26.6 0 0 0 4.94 0C11.765 5.765 13 6.76 13 8.062v1.157a.93.93 0 0 1-.765.935c-.845.147-2.34.346-4.235.346s-3.39-.2-4.235-.346A.93.93 0 0 1 3 9.219zm4.542-.827a.25.25 0 0 0-.217.068l-.92.9a25 25 0 0 1-1.871-.183.25.25 0 0 0-.068.495c.55.076 1.232.149 2.02.193a.25.25 0 0 0 .189-.071l.754-.736.847 1.71a.25.25 0 0 0 .404.062l.932-.97a25 25 0 0 0 1.922-.188.25.25 0 0 0-.068-.495c-.538.074-1.207.145-1.98.189a.25.25 0 0 0-.166.076l-.754.785-.842-1.7a.25.25 0 0 0-.182-.135"/>
+                    <path d="M8.5 1.866a1 1 0 1 0-1 0V3h-2A4.5 4.5 0 0 0 1 7.5V8a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1v-.5A4.5 4.5 0 0 0 10.5 3h-2zM14 7.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7.5A3.5 3.5 0 0 1 5.5 4h5A3.5 3.5 0 0 1 14 7.5"/>
+                </svg>
+                DAgger Pipeline Dashboard
+            </h1>
+            <p class="mb-0">Automated Policy Training Monitor</p>
+        </div>
+
+        <!-- Overview Card -->
+        <div class="progress-card">
+            <div id="overview-content">
+                <div class="loading">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading pipeline status...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Milestones -->
+        <div id="milestones-container">
+            <div class="loading">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading milestones...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Code Modal -->
+    <div class="modal fade code-modal" id="codeModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="codeModalTitle">Expert Policy Code</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <pre><code class="language-python" id="codeContent"></code></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Modal -->
+    <div class="modal fade video-modal" id="videoModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="videoModalTitle">Episode Video</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <video id="videoPlayer" controls>
+                        <source id="videoSource" src="" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Prism.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+
+    <script>
+        // API base URL
+        const API_BASE = '/api/dagger';
+
+        // Auto-refresh interval (5 seconds)
+        const REFRESH_INTERVAL = 5000;
+
+        // Load overview
+        async function loadOverview() {
+            try {
+                const response = await fetch(`${API_BASE}/overview`);
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('overview-content').innerHTML = `
+                        <div class="error-message">Error loading overview: ${data.error}</div>
+                    `;
+                    return;
+                }
+
+                const progress = data.progress || {};
+                const total = progress.total || 0;
+                const completed = progress.completed || 0;
+                const failed = progress.failed || 0;
+                const inProgress = progress.in_progress || 0;
+                const pending = progress.pending || 0;
+
+                const completedPercent = total > 0 ? (completed / total * 100).toFixed(1) : 0;
+
+                let currentStatus = '';
+                if (data.current_milestone && data.current_phase) {
+                    const phaseLabels = {
+                        'expert_eval': 'Expert Evaluation',
+                        'dagger_train': 'DAgger Training',
+                        'completed': 'Completed'
+                    };
+                    currentStatus = `
+                        <div class="alert alert-info mb-0">
+                            <strong>Current:</strong> ${data.current_milestone}
+                            <span class="badge bg-primary">${phaseLabels[data.current_phase] || data.current_phase}</span>
+                        </div>
+                    `;
+                }
+
+                document.getElementById('overview-content').innerHTML = `
+                    <div class="row">
+                        <div class="col-md-8">
+                            <h5 class="mb-3">Overall Progress</h5>
+                            <div class="progress mb-3" style="height: 30px;">
+                                <div class="progress-bar bg-success" style="width: ${completedPercent}%">
+                                    ${completed}/${total} (${completedPercent}%)
+                                </div>
+                            </div>
+                            ${currentStatus}
+                        </div>
+                        <div class="col-md-4">
+                            <div class="stat-box">
+                                <div class="stat-label">✅ Completed</div>
+                                <div class="stat-value text-success">${completed}</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-label">⏳ In Progress</div>
+                                <div class="stat-value text-info">${inProgress}</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-label">❌ Failed</div>
+                                <div class="stat-value text-danger">${failed}</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-label">⏸ Pending</div>
+                                <div class="stat-value text-secondary">${pending}</div>
+                            </div>
+                        </div>
+                    </div>
+                    ${data.last_update ? `<p class="text-muted mb-0 mt-2"><small>Last updated: ${data.last_update}</small></p>` : ''}
+                `;
+            } catch (error) {
+                document.getElementById('overview-content').innerHTML = `
+                    <div class="error-message">Error loading overview: ${error.message}</div>
+                `;
+            }
+        }
+
+        // Load milestones
+        async function loadMilestones() {
+            try {
+                const response = await fetch(`${API_BASE}/milestones`);
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('milestones-container').innerHTML = `
+                        <div class="error-message">Error loading milestones: ${data.error}</div>
+                    `;
+                    return;
+                }
+
+                const milestones = data.milestones || [];
+
+                if (milestones.length === 0) {
+                    document.getElementById('milestones-container').innerHTML = `
+                        <div class="alert alert-warning">No milestones found</div>
+                    `;
+                    return;
+                }
+
+                const milestonesHTML = milestones.map((m, idx) => renderMilestone(m, idx)).join('');
+                document.getElementById('milestones-container').innerHTML = milestonesHTML;
+
+            } catch (error) {
+                document.getElementById('milestones-container').innerHTML = `
+                    <div class="error-message">Error loading milestones: ${error.message}</div>
+                `;
+            }
+        }
+
+        // Render a single milestone
+        function renderMilestone(milestone, index) {
+            const statusBadges = {
+                'completed': '<span class="badge bg-success status-badge">✅ Completed</span>',
+                'in_progress': '<span class="badge bg-info status-badge">⏳ In Progress</span>',
+                'failed': '<span class="badge bg-danger status-badge">❌ Failed</span>',
+                'pending': '<span class="badge bg-secondary status-badge">⏸ Pending</span>'
+            };
+
+            const statusBadge = statusBadges[milestone.status] || statusBadges['pending'];
+
+            return `
+                <div class="milestone-card">
+                    <div class="milestone-header" data-bs-toggle="collapse" data-bs-target="#milestone-${index}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${index + 1}. ${milestone.id}</strong>
+                                <span class="ms-2">${statusBadge}</span>
+                            </div>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-chevron-down" viewBox="0 0 16 16">
+                                <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708"/>
+                            </svg>
+                        </div>
+                        <small class="text-muted">${milestone.description}</small>
+                    </div>
+                    <div class="collapse" id="milestone-${index}">
+                        <div class="milestone-body" id="detail-${milestone.id}">
+                            <div class="text-center py-3">
+                                <div class="spinner-border spinner-border-sm" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Load milestone detail
+        async function loadMilestoneDetail(milestoneId) {
+            const detailContainer = document.getElementById(`detail-${milestoneId}`);
+
+            try {
+                const response = await fetch(`${API_BASE}/milestone/${milestoneId}`);
+                const detail = await response.json();
+
+                if (detail.error) {
+                    detailContainer.innerHTML = `<div class="alert alert-warning">${detail.error}</div>`;
+                    return;
+                }
+
+                let html = '';
+
+                // Expert Policy Section
+                if (detail.expert) {
+                    const expert = detail.expert;
+                    html += `
+                        <div class="section-title">📝 Expert Policy</div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="stat-box">
+                                    <div class="stat-label">Success Rate</div>
+                                    <div class="stat-value">${(expert.success_rate * 100).toFixed(1)}% (${expert.num_success}/${expert.num_episodes})</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="stat-box">
+                                    <div class="stat-label">Steps</div>
+                                    <div class="stat-value">${expert.mean_steps.toFixed(1)} ± ${expert.std_steps.toFixed(1)} (${expert.min_steps}-${expert.max_steps})</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-primary btn-sm-custom me-2" onclick="showCode('${milestoneId}')">
+                                View Code
+                            </button>
+                            ${expert.best_video ? `
+                                <button class="btn btn-sm btn-success btn-sm-custom" onclick="showVideo('${milestoneId}', '${expert.best_video}', 'Expert')">
+                                    ▶ ${expert.best_video}
+                                </button>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+
+                // DAgger Policy Section
+                if (detail.dagger) {
+                    const dagger = detail.dagger;
+                    html += `
+                        <div class="section-title mt-4">🤖 DAgger Policy</div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="stat-box">
+                                    <div class="stat-label">Max Episode Steps</div>
+                                    <div class="stat-value">${dagger.max_episode_steps} (${dagger.step_multiplier}x)</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="stat-box">
+                                    <div class="stat-label">Iterations</div>
+                                    <div class="stat-value">${dagger.num_iterations}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="stat-box">
+                                    <div class="stat-label">Final Success Rate</div>
+                                    <div class="stat-value">${(dagger.final_success_rate * 100).toFixed(1)}%</div>
+                                </div>
+                            </div>
+                            ${dagger.final_train_accuracy !== undefined && dagger.final_train_accuracy !== null ? `
+                                <div class="col-md-6">
+                                    <div class="stat-box">
+                                        <div class="stat-label">Final Train Accuracy</div>
+                                        <div class="stat-value">${(dagger.final_train_accuracy * 100).toFixed(1)}%</div>
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${dagger.final_mean_return !== undefined ? `
+                                <div class="col-md-6">
+                                    <div class="stat-box">
+                                        <div class="stat-label">Mean Return</div>
+                                        <div class="stat-value">${dagger.final_mean_return.toFixed(2)}</div>
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${dagger.final_mean_length !== undefined ? `
+                                <div class="col-md-6">
+                                    <div class="stat-box">
+                                        <div class="stat-label">Mean Episode Length</div>
+                                        <div class="stat-value">${dagger.final_mean_length.toFixed(1)} steps</div>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="mt-2">
+                            ${dagger.best_video ? `
+                                <button class="btn btn-sm btn-success btn-sm-custom me-2" onclick="showVideo('${milestoneId}', '${dagger.best_video}', 'DAgger')">
+                                    ▶ ${dagger.best_video}
+                                </button>
+                            ` : ''}
+                            ${dagger.wandb_url ? `
+                                <a href="${dagger.wandb_url}" target="_blank" class="btn btn-sm btn-info btn-sm-custom">
+                                    📊 W&B Training Log
+                                </a>
+                            ` : ''}
+                        </div>
+                    `;
+
+                    // Show iteration-level metrics if available
+                    if (dagger.iteration_metrics && dagger.iteration_metrics.length > 0) {
+                        html += `
+                            <div class="section-title mt-4">📈 Training Progress by Iteration</div>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Iteration</th>
+                                            <th>Train Accuracy</th>
+                                            <th>Train Loss</th>
+                                            <th>Eval Success Rate</th>
+                                            <th>Eval Mean Return</th>
+                                            <th>Eval Mean Length</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                        `;
+
+                        for (const metric of dagger.iteration_metrics) {
+                            html += `
+                                <tr>
+                                    <td>${metric.iteration + 1}</td>
+                                    <td>${metric.train_accuracy !== undefined ? (metric.train_accuracy * 100).toFixed(1) + '%' : '-'}</td>
+                                    <td>${metric.train_loss !== undefined ? metric.train_loss.toFixed(4) : '-'}</td>
+                                    <td>${metric.eval_success_rate !== undefined ? (metric.eval_success_rate * 100).toFixed(1) + '%' : '-'}</td>
+                                    <td>${metric.eval_mean_return !== undefined ? metric.eval_mean_return.toFixed(2) : '-'}</td>
+                                    <td>${metric.eval_mean_length !== undefined ? metric.eval_mean_length.toFixed(1) : '-'}</td>
+                                </tr>
+                            `;
+                        }
+
+                        html += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        `;
+                    }
+                }
+
+                // Pending status
+                if (!detail.expert && !detail.dagger) {
+                    html = '<div class="alert alert-info">No data available yet</div>';
+                }
+
+                detailContainer.innerHTML = html;
+
+            } catch (error) {
+                detailContainer.innerHTML = `<div class="error-message">Error loading detail: ${error.message}</div>`;
+            }
+        }
+
+        // Show code modal
+        async function showCode(milestoneId) {
+            const modal = new bootstrap.Modal(document.getElementById('codeModal'));
+            document.getElementById('codeModalTitle').textContent = `Expert Policy: ${milestoneId}`;
+            document.getElementById('codeContent').textContent = 'Loading...';
+            modal.show();
+
+            try {
+                const response = await fetch(`${API_BASE}/milestone/${milestoneId}/code`);
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('codeContent').textContent = `Error: ${data.error}`;
+                } else {
+                    document.getElementById('codeContent').textContent = data.code;
+                    Prism.highlightElement(document.getElementById('codeContent'));
+                }
+            } catch (error) {
+                document.getElementById('codeContent').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Show video modal
+        function showVideo(milestoneId, filename, type) {
+            const modal = new bootstrap.Modal(document.getElementById('videoModal'));
+            document.getElementById('videoModalTitle').textContent = `${type} Video: ${filename}`;
+            document.getElementById('videoSource').src = `/dagger_videos/${milestoneId}/${filename}`;
+            document.getElementById('videoPlayer').load();
+            modal.show();
+        }
+
+        // Event listener for accordion
+        document.addEventListener('shown.bs.collapse', function(event) {
+            const milestoneId = event.target.id.replace('milestone-', '');
+            const milestones = document.querySelectorAll('.milestone-card');
+            const milestone = milestones[parseInt(milestoneId)];
+            const actualId = milestone.querySelector('[id^="detail-"]').id.replace('detail-', '');
+
+            // Only load if not already loaded
+            const detailContainer = document.getElementById(`detail-${actualId}`);
+            if (detailContainer.querySelector('.spinner-border')) {
+                loadMilestoneDetail(actualId);
+            }
+        });
+
+        // Initial load
+        loadOverview();
+        loadMilestones();
+
+        // Auto-refresh
+        setInterval(() => {
+            loadOverview();
+            // Note: Don't auto-reload all milestones to avoid disrupting user interaction
+        }, REFRESH_INTERVAL);
+    </script>
+</body>
+</html>
