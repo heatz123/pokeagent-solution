@@ -939,3 +939,7 @@ If you use this codebase in your research, please cite:
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. Make sure to comply with the terms of service of any VLM APIs you use.
+
+## Notes
+
+The weights file and the policy script is uploaded [here](https://drive.google.com/drive/folders/1fvfp4B0FdINOKGkMbhqbr4iNqehjEz9T?usp=drive_link).
