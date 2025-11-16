@@ -2,6 +2,15 @@
 
 ![PokéAgent Challenge: RPG Speedrunning Agent in Pokémon Emerald](emerald.png)
 
+## TL;DR
+1. This system generates Markovian expert policies using LLM
+2. RL is used but since exploration is difficult, it gets guidance from these expert policies
+3. All submissions are neural network policy outputs (no coded actions)
+
+**Watch the demo:** https://youtu.be/HBAgt2dx2-U
+
+---
+
 An AI agent that plays Pokémon Emerald using vision-language models to perceive the game environment, plan actions, and execute gameplay strategies. This is a **starter kit** designed to be easily customizable for different VLMs and agent behaviors.
 
 ## Table of Contents
